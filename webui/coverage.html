@@ -34,7 +34,16 @@ var treemap = d3.layout.treemap()
 
 // Global display
 var display;
+
+var pageopts = {};
 function onLoad() {
+  if (location.search) {
+    var pieces = location.search.substring(1).split('&');
+    for (var i = 0; i < pieces.length; i++) {
+      var aeqb = pieces[i].split('=');
+      pageopts[aeqb[0]] = aeqb[1] ? aeqb[1] : "true";
+    }
+  }
   width = document.getElementById("chart").clientWidth;
   height = width * 9 / 16;
   treemap.size([width, height]);
@@ -56,7 +65,25 @@ function loadJsonData(json) {
   root = json;
   // Done loading, display the data tree
   display.text('');
-  reroot(json);
+  if (pageopts.dir) {
+    var components = pageopts.dir.split('/');
+    var newroot = root;
+    for (var i = 0; i < components.length; i++) {
+      var valid = false;
+      if (!newroot) break;
+      for (var j = 0; j < newroot.files.length; j++) {
+        if (newroot.files[j].name == components[i]) {
+          newroot.files[j].parent = newroot;
+          newroot = newroot.files[j];
+          valid = true;
+          break;
+        }
+      }
+    }
+    if (newroot && valid)
+      root = newroot;
+  }
+  reroot(root);
 
   // Change sizes
   d3.select("#size-line").on("click", function() {
@@ -114,12 +141,13 @@ function cell() {
 function get_source_file(data) {
   if ("_path" in data)
     return data._path;
-  var path = '';
-  while ('parent' in data) {
-    path = '/' + data.name + path;
-    data = data.parent;
-  }
-  return data._path = path.substring(1);
+  if ('parent' in data) {
+    var parentpath = get_source_file(data.parent);
+    if (parentpath == '')
+      return data._path = data.name;
+    return data._path = parentpath + "/" + data.name;
+  } else
+    return data._path = '';
 }
 
 function reroot(new_root) {
