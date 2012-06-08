@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html><head>
+<title>Code coverage</title>
+<script type="application/javascript" src="http://d3js.org/d3.v2.js"></script>
+<script type="application/javascript" src="http://code.jquery.com/jquery-1.6.2.min.js"></script>
+<script type="text/javascript" src="jquery.tipsy.js"></script>
+<script type="application/javascript">
+// Default size of the treemap
+var width = 1280, height = 720;
+
+// Coloring functions.
+function color_normal(ratio) {
+  return d3.rgb((1 - ratio) * 255, ratio * 255, 0);
+}
+function color_skew(ratio) {
+  return color_normal(ratio * ratio);
+}
+var color = color_normal;
+
+function compute_coverage(prop, d) {
+  return d.files.length ? "transparent" : color(d[prop + '-hit'] / d[prop]);
+}
+var byline = compute_coverage.bind(undefined, 'lines'),
+    byfunc = compute_coverage.bind(undefined, 'funcs');
+
+var cur_color = byline;
+
+// Set up the treemap layout engine
+var treemap = d3.layout.treemap()
+  .size([width, height])
+  .sticky(false)
+  .children(function (d) { return d.files.length > 0 ? d.files : null; })
+  .value(function(d) { return d.lines; });
+
+// Global display
+var display;
+function onLoad() {
+  width = document.getElementById("chart").clientWidth;
+  height = width * 9 / 16;
+  treemap.size([width, height]);
+  display = d3.select("#coverage_treemap")
+    .style("position", "relative")
+    .style("width", width + "px")
+    .style("height", height + "px");
+  d3.json("test.json", loadJsonData);
+
+  // Coverage scales help
+  d3.select("svg").append("g")
+    .attr("transform", "translate(5, 5)")
+    .call(d3.svg.axis().scale(d3.scale.linear().domain([0,100]).range([0,200]))
+                .tickPadding(10).ticks(3));
+}
+
+var root = null;
+function loadJsonData(json) {
+  root = json;
+  // Done loading, display the data tree
+  display.text('');
+  reroot(json);
+
+  // Change sizes
+  d3.select("#size-line").on("click", function() {
+    display.selectAll("div")
+      .data(treemap.value(function (d) {return d.lines; }))
+      .transition().duration(1500).call(cell);
+    d3.select("#size-line").classed("active", true);
+    d3.select("#size-func").classed("active", false);
+  });
+  d3.select("#size-func").on("click", function() {
+    display.selectAll("div")
+      .data(treemap.value(function (d) {return d.funcs; }))
+      .transition().duration(1500).call(cell);
+    d3.select("#size-func").classed("active", true);
+    d3.select("#size-line").classed("active", false);
+  });
+
+  // Change the coloring
+  d3.select("#color-line").on("click", function() {
+    cur_color = byline;
+    display.selectAll("div").transition().duration(500)
+      .style("background-color", cur_color);
+    d3.select("#color-line").classed("active", true);
+    d3.select("#color-func").classed("active", false);
+  });
+  d3.select("#color-func").on("click", function() {
+    cur_color = byfunc;
+    display.selectAll("div").transition().duration(500)
+      .style("background-color", cur_color);
+    d3.select("#color-func").classed("active", true);
+    d3.select("#color-line").classed("active", false);
+  });
+  // Skew controls disabled due to poor UI to explain it.
+  //d3.select("#skew").on("click", function () {
+  //  var use_skew = !d3.select("#skew").classed("active");
+  //  color = use_skew ? color_skew : color_normal;
+  //  display.selectAll("div").transition().duration(500)
+  //    .style("background-color", cur_color);
+  //  d3.select("#skew").classed("active", use_skew);
+  //});
+}
+function bind_layout(d) {
+  d.bound_left = d.x + "px";
+  d.bound_top = d.y + "px";
+  d.bound_width = Math.max(0, d.dx - 1) + "px";
+  d.bound_height = Math.max(0, d.dy - 1) + "px";
+}
+function cell() {
+  this.style("left", function(d) { return d.x + "px"; })
+      .style("top", function(d) { return d.y + "px"; })
+      .style("width", function(d) { return Math.max(0, d.dx - 1) + "px"; })
+      .style("height", function(d) { return Math.max(0, d.dy - 1) + "px"; })
+}
+
+function get_source_file(data) {
+  if ("_path" in data)
+    return data._path;
+  var path = '';
+  while ('parent' in data) {
+    path = '/' + data.name + path;
+    data = data.parent;
+  }
+  return data._path = path.substring(1);
+}
+
+function reroot(new_root) {
+  document.getElementById("filepath").textContent = get_source_file(new_root);
+  root = new_root;
+
+  // Move the nodes around
+  // XXX: needed to clear internal layout cache
+  //treemap.sticky(true);
+
+  var nodes = display.data([root]).selectAll("div")
+    .data(treemap.nodes, function (d) { return get_source_file(d); })
+  // Transition the new cells
+  nodes.exit().transition().duration(1000)
+    .style("background-color", "#fff")
+    .remove();
+  nodes.transition().delay(1000).duration(1000).call(cell);
+  nodes.enter().append("div")
+    .attr("class", "cell")
+    .text(function(d) { return d.children ? null : d.name; })
+    .call(cell).style("opacity", 0)
+    .style("background-color", cur_color)
+    .on("click", function (d) {
+      // Ctrl-Click -> up a level
+      if (d3.event.ctrlKey) {
+        d = root.parent;
+      } else {
+        while(d && d.parent != root) d = d.parent;
+      }
+      if (d)
+        reroot(d);
+    }).transition().delay(2000).duration(1000).style("opacity", 1);
+  nodes.order();
+
+  // Seems that tipse likes to keep things alive
+  d3.selectAll(".tipsy").remove();
+
+  // Add details-on-demand tooltips
+  $(".cell").tipsy({ gravity: 's', html: true, title: function() {
+    var d = this.__data__;
+    return "File: " + get_source_file(d) + "<br/>" +
+      "Line coverage: " + d['lines-hit'] + "/" + d.lines + " (" +
+        d3.format(".3p")(d['lines-hit'] / d.lines) + ")<br/>" +
+      "Function coverage: " + d['funcs-hit'] + "/" + d.funcs + " (" +
+        d3.format(".3p")(d['funcs-hit'] / d.funcs) + ")";
+  }});
+}
+
+</script>
+<link href="tipsy.css" rel="stylesheet" type="text/css" />
+<link href="button.css" rel="stylesheet" type="text/css" />
+<style type="text/css">
+.cell {
+  border: solid 1px black;
+  font: 11px sans-serif;
+  overflow: hidden;
+  position: absolute;
+  text-indent: 2px;
+  text-overflow: ellipsis;
+}
+
+#chart {
+  width: 95%;
+}
+
+#controls > div {
+  margin-left: 1em;
+}
+
+#controls {
+  margin-bottom: 0.3em;
+  width: 100%;
+}
+
+svg text {
+  font: 11px sans-serif;
+}
+path.domain { display: none; }
+</style>
+</head>
+<body onload="onLoad()">
+<div class='gallery' id='chart'>
+<div id="controls">
+<div style="float: left">Viewing coverage for <span id="filepath"></span></div>
+<div style="float: right">Area:
+<button class='first active' id='size-line'>Line</button><button class='last' id='size-func'>Function</button>
+</div>
+<div style="float: right">Color:
+<button class='first active' id='color-line'>Line</button><button class='last' id='color-func'>Function</button>
+</div>
+<div style="float: right; padding-top: 3px"><svg width="220px" height="2em">
+<defs><linearGradient id="coverage_scale">
+<stop offset="0%" stop-color="#f00" />
+<stop offset="100%" stop-color="#0f0" />
+</linearGradient></defs>
+<rect x="5px" y="0px" width="200px" height="15px" style="fill:url(#coverage_scale)"/>
+</svg></div>
+<div style="clear:both"></div>
+</div>
+<div id="coverage_treemap">Loading data...</div>
+</div>
+</body>
+</html>
