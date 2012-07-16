@@ -1,24 +1,27 @@
 #!/usr/bin/python
 
 class CoverageData:
+  # data is a map of [testname -> fileData]
   # fileData is a map of [file -> perFileData]
   # perFileData:
   #  lines: [line# -> line hit count]
   #  funcs: [func name -> [line number, func hit count]]
-  _fileData = dict()
+  _data = {'': {}}
   def addFromLcovFile(self, fd):
     ''' Adds the data from the given file (in lcov format) to the current
         data tree. '''
+    fileData = self._data['']
     # LCOV info files are line-based
     for line in fd:
       line = line.strip()
       instr, data = line.split(':', 1)
       if instr == 'TN': # TN:<test name>
+        fileData = self._data.setdefault(data, dict())
         continue
       elif instr == 'SF': # SF:<absolute path to the source file>
         if os.path.islink(data):
           data = os.path.realpath(data)
-        CoverageData._addLcovData(fd, self._fileData.setdefault(data, {}))
+        CoverageData._addLcovData(fd, fileData.setdefault(data, {}))
       else:
         raise Exception("Unknown line: %s" % line)
     fd.close()
@@ -50,37 +53,44 @@ class CoverageData:
       #  raise Exception("Unknown line: %s" % line)
 
   def writeLcovOutput(self, fd):
-    fd.write('TN:\n')
-    for fname in self._fileData:
-      perFileData = self._fileData[fname]
-      fd.write("SF:%s\n" % fname)
-      # Write out func data
-      fnf, fnh = 0, 0
-      for func in perFileData['funcs']:
-        fndata = perFileData['funcs'][func]
-        fd.write("FN:%d,%s\n" % (fndata[0], func))
-        fd.write("FNDA:%d,%s\n" % (fndata[1], func))
-        fnf += 1
-        fnh += fndata[1] != 0
-      fd.write("FNF:%d\n" % fnf)
-      fd.write("FNH:%d\n" % fnh)
-
-      # Write out line data
-      lh, lf = 0, 0
-      for line in perFileData['lines']:
-        fd.write("DA:%d,%d\n" % (line, perFileData['lines'][line]))
-        lf += 1
-        lh += perFileData['lines'][line] != 0
-      fd.write("LH:%d\n" % lh)
-      fd.write("LF:%d\n" % lf)
-      fd.write("end_of_record\n")
+    for test in self._data:
+      fileData = self._data[test]
+      for fname in fileData:
+        perFileData = fileData[fname]
+        fd.write('TN:%s\n' % test)
+        fd.write("SF:%s\n" % fname)
+        self._writeRecord(fd, perFileData)
     fd.close()
 
-  def loadGcdaAndGcno(self, gcdapath, gcnopath):
+  def _writeRecord(self, fd, perFileData):
+    # Write out func data
+    fnf, fnh = 0, 0
+    for func in perFileData['funcs']:
+      fndata = perFileData['funcs'][func]
+      fd.write("FN:%d,%s\n" % (fndata[0], func))
+      fd.write("FNDA:%d,%s\n" % (fndata[1], func))
+      fnf += 1
+      fnh += fndata[1] != 0
+    fd.write("FNF:%d\n" % fnf)
+    fd.write("FNH:%d\n" % fnh)
+
+    # Write out line data
+    lh, lf = 0, 0
+    for line in perFileData['lines']:
+      fd.write("DA:%d,%d\n" % (line, perFileData['lines'][line]))
+      lf += 1
+      lh += perFileData['lines'][line] != 0
+    fd.write("LH:%d\n" % lh)
+    fd.write("LF:%d\n" % lf)
+    fd.write("end_of_record\n")
+
+  def loadGcdaAndGcno(self, testname, gcdapath, gcnopath):
     import gcov, io
+    if not testname in self._data:
+      self._data[testname] = dict()
     gcnodata = gcov.read_gcno_file(io.open(gcnopath, "rb"))
     gcov.add_gcda_counts(io.open(gcdapath, "rb"), gcnodata)
-    gcov.make_coverage_json(gcnodata, self._fileData)
+    gcov.make_coverage_json(gcnodata, self._data[testname])
 
 import os, sys
 
@@ -93,6 +103,8 @@ def main(argv):
       help="File to output data to", metavar="FILE")
   o.add_option('-c', '--collect', dest="gcda_dirs", action="append",
       help="Collect data from gcov results", metavar="DIR")
+  o.add_option('-t', '--test-name', dest="testname",
+      help="Use the NAME for the name of the test", metavar="NAME")
   (opts, args) = o.parse_args(argv)
 
   # Load coverage data
@@ -109,6 +121,7 @@ def main(argv):
       print >> sys.stderr, e
 
   if opts.gcda_dirs == None: opts.gcda_dirs = []
+  test = opts.testname or ''
   for gcdaDir in opts.gcda_dirs:
     for dirpath, dirnames, filenames in os.walk(gcdaDir):
       for f in filenames:
@@ -116,7 +129,7 @@ def main(argv):
         path = os.path.join(dirpath, f)
         if f[-5:] == '.gcda' and gcnoname in filenames:
           print >>sys.stderr, "Processing file %s" % path
-          coverage.loadGcdaAndGcno(path, os.path.join(dirpath, gcnoname))
+          coverage.loadGcdaAndGcno(test, path, os.path.join(dirpath, gcnoname))
 
   # Store it to output
   if opts.outfile != None:
