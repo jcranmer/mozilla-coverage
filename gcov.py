@@ -17,6 +17,9 @@ def read_gcno_tag(f, data, curfn):
   tag, length = read_struct('=II', f)
   if tag == 0x01000000: # GCOV_FUNCTION
     ident, checksum = read_struct('=II', f)
+    # GCC 4.7 added a second checksum
+    if data['version'] > '407 ':
+      read_struct('=I', f)
     name = read_string(f)
     source = read_string(f)
     line = read_struct('=I', f)[0]
@@ -53,6 +56,7 @@ def read_gcno_file(f):
   magic, version, stamp = read_struct('=III', f)
   if magic != 0x67636e6f: # gcno, as a hex integer
     raise Exception("Unknown magic: %x" % magic)
+  version = ''.join(chr((version >> shift) & 0xff) for shift in [24, 16, 8, 0])
   # What's the stamp about? I don't know...
   tldata = {'funcs': {}, 'version': version}
   curfn = ''
@@ -77,6 +81,9 @@ def read_gcda_tag(f, data, curfn):
   length = read_struct('=I', f)[0]
   if tag == 0x01000000: # GCOV_FUNCTION
     ident, checksum = read_struct('=II', f)
+    # GCC 4.7 added a second checksum
+    if data['version'] > '407 ':
+      read_struct('=I', f)
     fndata = data['funcs'][ident]
     return ident
   elif tag == 0x01a10000: # GCOV_COUNTER_ARCS
