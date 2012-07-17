@@ -91,6 +91,23 @@ class CoverageData:
     gcnodata = gcov.read_gcno_file(io.open(gcnopath, "rb"))
     gcov.add_gcda_counts(io.open(gcdapath, "rb"), gcnodata)
     gcov.make_coverage_json(gcnodata, self._data[testname])
+ 
+  def getFlatData(self):
+    data = {}
+    for test in self._data:
+      testdata = self._data[test]
+      for file in testdata:
+        fdata = data.setdefault(file, {"lines": {}, "funcs": {}})
+        tfdata = testdata[file]
+        # Merge line data in
+        for line in tfdata["lines"]:
+          fdata["lines"][line] = (fdata["lines"].get(line, 0) +
+            tfdata["lines"][line])
+        # Merge in function data
+        for func in tfdata["funcs"]:
+          fndata = tfdata["funcs"][func]
+          fdata["funcs"].setdefault(func, [fndata[0], 0])[1] += fndata[1]
+    return data
 
 import os, sys
 
