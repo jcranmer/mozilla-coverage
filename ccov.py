@@ -6,6 +6,7 @@ class CoverageData:
   # perFileData:
   #  lines: [line# -> line hit count]
   #  funcs: [func name -> [line number, func hit count]]
+  #  branches: [ (line #, branch #) -> [exec count, lownum, branch counts...] ]
   _data = {'': {}}
   def addFromLcovFile(self, fd):
     ''' Adds the data from the given file (in lcov format) to the current
@@ -31,6 +32,8 @@ class CoverageData:
     # Lines and function count live in dicts
     lines = fileStruct.setdefault('lines', {})
     funcs = fileStruct.setdefault('funcs', {})
+    branches = fileStruct.setdefault('branches', {})
+    brmap = {}
     for line in fd:
       line = line.strip()
       if line == 'end_of_record':
@@ -46,6 +49,16 @@ class CoverageData:
       elif instr == 'FN': # FN:<line number of function start>,<function name>
         data = data.split(',')
         funcs.setdefault(data[1], [0, 0])[0] = int(data[0])
+      elif instr == 'BRDA': # <line>,<block>,<branch>,<count or ->
+        data = [x == '-' and '-' or int(x) for x in data.split(',')]
+        # Reset the branch numbering as necessary
+        brdata = branches.setdefault((data[0],data[1]), [0, data[2]])
+        brno = data[2] - brdata[1]
+        while brno + 3 > len(brdata):
+          brdata.append(0)
+        if data[3] != '-':
+          brdata[brno + 2] += data[3]
+          brdata[0] += data[3]
       elif instr in ['LH', 'LF', 'FNF', 'FNH']:
         # Hit/found -> we count these ourselves
         continue
@@ -82,6 +95,18 @@ class CoverageData:
       lh += perFileData['lines'][line] != 0
     fd.write("LH:%d\n" % lh)
     fd.write("LF:%d\n" % lf)
+
+    # Write out branch data
+    brf, brh = 0, 0
+    for line, branch in perFileData['branches']:
+      counts = perFileData['branches'][(line, branch)]
+      for branchno in range(0, len(counts) - 2):
+        fd.write("BRDA:%d,%d,%d,%s\n" % (line, branch, branchno + counts[1],
+          (counts[0] == 0 and '-' or str(counts[branchno + 2]))))
+        brf += 1
+        brh += counts[branchno + 2] != 0
+    fd.write("BRH:%d\n" % brh)
+    fd.write("BRF:%d\n" % brf)
     fd.write("end_of_record\n")
 
   def loadGcdaAndGcno(self, testname, gcdapath, gcnopath):
