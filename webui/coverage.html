@@ -90,14 +90,14 @@ function loadJsonData(json) {
   d3.select("#size-line").on("click", function() {
     display.selectAll("div")
       .data(treemap.value(function (d) {return d.lines; }))
-      .transition().duration(1500).call(cell);
+      .call(cell);
     d3.select("#size-line").classed("active", true);
     d3.select("#size-func").classed("active", false);
   });
   d3.select("#size-func").on("click", function() {
     display.selectAll("div")
       .data(treemap.value(function (d) {return d.funcs; }))
-      .transition().duration(1500).call(cell);
+      .call(cell);
     d3.select("#size-func").classed("active", true);
     d3.select("#size-line").classed("active", false);
   });
@@ -105,24 +105,21 @@ function loadJsonData(json) {
   // Change the coloring
   d3.select("#color-line").on("click", function() {
     cur_color = byline;
-    display.selectAll("div").transition().duration(500)
-      .style("background-color", cur_color);
+    display.selectAll("div").style("background-color", cur_color);
     d3.select("#color-line").classed("active", true);
     d3.select("#color-func").classed("active", false);
     d3.select("#color-branch").classed("active", false);
   });
   d3.select("#color-func").on("click", function() {
     cur_color = byfunc;
-    display.selectAll("div").transition().duration(500)
-      .style("background-color", cur_color);
+    display.selectAll("div").style("background-color", cur_color);
     d3.select("#color-func").classed("active", true);
     d3.select("#color-line").classed("active", false);
     d3.select("#color-branch").classed("active", false);
   });
   d3.select("#color-branch").on("click", function() {
     cur_color = bybranch;
-    display.selectAll("div").transition().duration(500)
-      .style("background-color", cur_color);
+    display.selectAll("div").style("background-color", cur_color);
     d3.select("#color-branch").classed("active", true);
     d3.select("#color-line").classed("active", false);
     d3.select("#color-func").classed("active", false);
@@ -131,8 +128,7 @@ function loadJsonData(json) {
   //d3.select("#skew").on("click", function () {
   //  var use_skew = !d3.select("#skew").classed("active");
   //  color = use_skew ? color_skew : color_normal;
-  //  display.selectAll("div").transition().duration(500)
-  //    .style("background-color", cur_color);
+  //  display.selectAll("div").style("background-color", cur_color);
   //  d3.select("#skew").classed("active", use_skew);
   //});
 }
@@ -172,10 +168,9 @@ function reroot(new_root) {
   var nodes = display.data([root]).selectAll("div")
     .data(treemap.nodes, function (d) { return get_source_file(d); })
   // Transition the new cells
-  nodes.exit().transition().duration(1000)
-    .style("background-color", "#fff")
-    .remove();
-  nodes.transition().delay(1000).duration(1000).call(cell);
+  nodes.exit().style("background-color", "#fff")
+    .transition().duration(1000).remove();
+  nodes.transition().delay(1000).call(cell);
   nodes.enter().append("div")
     .attr("class", "cell")
     .text(function(d) { return d.children ? null : d.name; })
@@ -190,10 +185,10 @@ function reroot(new_root) {
       }
       if (d)
         reroot(d);
-    }).transition().delay(2000).duration(1000).style("opacity", 1);
+    }).transition().delay(2000).style("opacity", 1);
   nodes.order();
 
-  // Seems that tipse likes to keep things alive
+  // Seems that tipsy likes to keep things alive
   d3.selectAll(".tipsy").remove();
 
   // Add details-on-demand tooltips
@@ -222,6 +217,17 @@ function reroot(new_root) {
   position: absolute;
   text-indent: 2px;
   text-overflow: ellipsis;
+  /* No need for transition-property, since all things are transitioned */
+  -moz-transition-duration: 1s;
+  -o-transition-duration: 1s;
+  -ms-transition-duration: 1s;
+  -webkit-transition-duration: 1s;
+  transition-duration: 1s;
+  -moz-transition-timing-function: ease-in-out;
+  -o-transition-timing-function: ease-in-out;
+  -ms-transition-timing-function: ease-in-out;
+  -webkit-transition-timing-function: ease-in-out;
+  transition-timing-function: ease-in-out;
 }
 
 #chart {
