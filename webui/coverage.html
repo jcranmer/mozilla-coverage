@@ -21,7 +21,8 @@ function compute_coverage(prop, d) {
   return d.files.length ? "transparent" : color(d[prop + '-hit'] / d[prop]);
 }
 var byline = compute_coverage.bind(undefined, 'lines'),
-    byfunc = compute_coverage.bind(undefined, 'funcs');
+    byfunc = compute_coverage.bind(undefined, 'funcs'),
+    bybranch = compute_coverage.bind(undefined, 'branches');
 
 var cur_color = byline;
 
@@ -108,6 +109,7 @@ function loadJsonData(json) {
       .style("background-color", cur_color);
     d3.select("#color-line").classed("active", true);
     d3.select("#color-func").classed("active", false);
+    d3.select("#color-branch").classed("active", false);
   });
   d3.select("#color-func").on("click", function() {
     cur_color = byfunc;
@@ -115,6 +117,15 @@ function loadJsonData(json) {
       .style("background-color", cur_color);
     d3.select("#color-func").classed("active", true);
     d3.select("#color-line").classed("active", false);
+    d3.select("#color-branch").classed("active", false);
+  });
+  d3.select("#color-branch").on("click", function() {
+    cur_color = bybranch;
+    display.selectAll("div").transition().duration(500)
+      .style("background-color", cur_color);
+    d3.select("#color-branch").classed("active", true);
+    d3.select("#color-line").classed("active", false);
+    d3.select("#color-func").classed("active", false);
   });
   // Skew controls disabled due to poor UI to explain it.
   //d3.select("#skew").on("click", function () {
@@ -188,11 +199,15 @@ function reroot(new_root) {
   // Add details-on-demand tooltips
   $(".cell").tipsy({ gravity: 's', html: true, title: function() {
     var d = this.__data__;
-    return "File: " + get_source_file(d) + "<br/>" +
+    var str = "File: " + get_source_file(d) + "<br/>" +
       "Line coverage: " + d['lines-hit'] + "/" + d.lines + " (" +
         d3.format(".3p")(d['lines-hit'] / d.lines) + ")<br/>" +
       "Function coverage: " + d['funcs-hit'] + "/" + d.funcs + " (" +
         d3.format(".3p")(d['funcs-hit'] / d.funcs) + ")";
+    if (d['branches'] > 0)
+      str += "<br/>Branch coverage: " + d['branches-hit'] + "/" + d.branches +
+             " (" + d3.format(".3p")(d['branches-hit'] / d.branches) + ")";
+    return str;
   }});
 }
 
@@ -236,7 +251,9 @@ path.domain { display: none; }
 <button class='first active' id='size-line'>Line</button><button class='last' id='size-func'>Function</button>
 </div>
 <div style="float: right">Color:
-<button class='first active' id='color-line'>Line</button><button class='last' id='color-func'>Function</button>
+<button class='first active' id='color-line'>Line</button><button
+        class='' id='color-func'>Function</button><button
+        class='last' id='color-branch'>Branch</button>
 </div>
 <div style="float: right; padding-top: 3px"><svg width="220px" height="2em">
 <defs><linearGradient id="coverage_scale">
