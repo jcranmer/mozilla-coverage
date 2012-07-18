@@ -6,7 +6,7 @@ class CoverageData:
   # perFileData:
   #  lines: [line# -> line hit count]
   #  funcs: [func name -> [line number, func hit count]]
-  #  branches: [ (line #, branch #) -> [exec count, lownum, branch counts...] ]
+  #  branches: [ (line #, branch #) -> {id -> count} ]
   _data = {'': {}}
   def addFromLcovFile(self, fd):
     ''' Adds the data from the given file (in lcov format) to the current
@@ -52,13 +52,14 @@ class CoverageData:
       elif instr == 'BRDA': # <line>,<block>,<branch>,<count or ->
         data = [x == '-' and '-' or int(x) for x in data.split(',')]
         # Reset the branch numbering as necessary
-        brdata = branches.setdefault((data[0],data[1]), [0, data[2]])
-        brno = data[2] - brdata[1]
-        while brno + 3 > len(brdata):
-          brdata.append(0)
-        if data[3] != '-':
-          brdata[brno + 2] += data[3]
-          brdata[0] += data[3]
+        brdata = branches.setdefault((data[0],data[1]), {})
+        if data[3] == '-':
+          data[3] = 0
+        count = data[3]
+        if data[2] in brdata:
+          brdata[data[2]] += count
+        else:
+          brdata[data[2]] = count
       elif instr in ['LH', 'LF', 'FNF', 'FNH']:
         # Hit/found -> we count these ourselves
         continue
@@ -100,11 +101,12 @@ class CoverageData:
     brf, brh = 0, 0
     for line, branch in perFileData['branches']:
       counts = perFileData['branches'][(line, branch)]
-      for branchno in range(0, len(counts) - 2):
-        fd.write("BRDA:%d,%d,%d,%s\n" % (line, branch, branchno + counts[1],
-          (counts[0] == 0 and '-' or str(counts[branchno + 2]))))
+      total = sum(counts.itervalues())
+      for branchno in counts:
+        fd.write("BRDA:%d,%d,%d,%s\n" % (line, branch, branchno,
+          (total == 0 and '-' or str(counts[branchno]))))
         brf += 1
-        brh += counts[branchno + 2] != 0
+        brh += counts[branchno] != 0
     fd.write("BRH:%d\n" % brh)
     fd.write("BRF:%d\n" % brf)
     fd.write("end_of_record\n")
@@ -122,7 +124,7 @@ class CoverageData:
     for test in self._data:
       testdata = self._data[test]
       for file in testdata:
-        fdata = data.setdefault(file, {"lines": {}, "funcs": {}})
+        fdata = data.setdefault(file, {"lines": {}, "funcs": {}, "branches": {}})
         tfdata = testdata[file]
         # Merge line data in
         for line in tfdata["lines"]:
@@ -132,6 +134,12 @@ class CoverageData:
         for func in tfdata["funcs"]:
           fndata = tfdata["funcs"][func]
           fdata["funcs"].setdefault(func, [fndata[0], 0])[1] += fndata[1]
+        # Branch data
+        for branch in tfdata["branches"]:
+          brdata = tfdata["branches"][branch]
+          flatbrdata = fdata["branches"].setdefault(branch, {})
+          for brid in brdata:
+            flatbrdata[brid] = flatbrdata.get(brid, 0) + brdata[brid]
     return data
 
 import os, sys
