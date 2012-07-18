@@ -231,18 +231,21 @@ function reroot(new_root) {
 }
 
 #chart {
-  width: 95%;
+  width: 80%;
 }
 
-#controls > div {
-  margin-left: 1em;
+p { margin-top: 0; }
+h3 { margin-bottom: 0; }
+
+#sidebar {
+  float: right;
+  width: 18%;
+}
+#sidebar > div {
+  margin-bottom: 1em;
 }
 
-#controls {
-  margin-bottom: 0.3em;
-  width: 100%;
-}
-
+svg { float: right; }
 svg text {
   font: 11px sans-serif;
 }
@@ -250,26 +253,37 @@ path.domain { display: none; }
 </style>
 </head>
 <body onload="onLoad()">
-<div class='gallery' id='chart'>
-<div id="controls">
-<div style="float: left">Viewing coverage for <span id="filepath"></span></div>
-<div style="float: right">Area:
-<button class='first active' id='size-line'>Line</button><button class='last' id='size-func'>Function</button>
-</div>
-<div style="float: right">Color:
+<p>Viewing coverage for <span id="filepath"></span></p>
+<div id="sidebar">
+  <div style="display: inline-block">Scale:
+    <svg width="220px" height="2em" style="float: right">
+       <defs><linearGradient id="coverage_scale">
+         <stop offset="0%" stop-color="#f00" />
+         <stop offset="100%" stop-color="#0f0" />
+       </linearGradient></defs>
+       <rect x="5px" y="0px" width="200px" height="15px"
+             style="fill:url(#coverage_scale)"/>
+    </svg></div>
+<div>Color:
 <button class='first active' id='color-line'>Line</button><button
         class='' id='color-func'>Function</button><button
         class='last' id='color-branch'>Branch</button>
+</div><div>Area:
+<button class='first active' id='size-line'>Line</button><button
+        class='last' id='size-func'>Function</button>
 </div>
-<div style="float: right; padding-top: 3px"><svg width="220px" height="2em">
-<defs><linearGradient id="coverage_scale">
-<stop offset="0%" stop-color="#f00" />
-<stop offset="100%" stop-color="#0f0" />
-</linearGradient></defs>
-<rect x="5px" y="0px" width="200px" height="15px" style="fill:url(#coverage_scale)"/>
-</svg></div>
-<div style="clear:both"></div>
+<h3>Instructions:</h3>
+<p>In the diagram, every rectangle represents a file in the source tree. The
+size that the rectangle occupies is indicative of how many lines or functions
+are found in that file, while the color represents what percentage of the file
+is covered by various test suites.
+<p>Click on a rectangle to go down one level in the directory tree towards that
+file. Ctrl-click anywhere in the diagram to go up a level. Hover over any
+rectangle to see details about how many lines, functions, and branches are
+covered in that file.
+</p>
 </div>
+<div class='gallery' id='chart'>
 <div id="coverage_treemap">Loading data...</div>
 </div>
 </body>
