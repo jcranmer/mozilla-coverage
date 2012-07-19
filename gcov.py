@@ -25,6 +25,10 @@ def read_string(f):
 #   }]
 # }
 
+# Arc flags
+COMPUTED_COUNT = 1 << 0
+FAKE_ARC = 1 << 1
+
 def read_gcno_tag(f, data, curfn):
   if curfn:
     fndata = data['funcs'][curfn]
@@ -109,9 +113,7 @@ def read_gcda_tag(f, data, curfn):
     count_num = 0
     for bb in fndata['bbs']:
       for arc in bb['next']:
-        # Flag 1 << 0 is "on_tree"; not having this means the counter doesn't
-        # count
-        if arc[1] & 1 == 1:
+        if arc[1] & COMPUTED_COUNT:
           continue
         lo, hi = read_struct('=II', f)
         arc[2] += lo | hi << 32
@@ -159,20 +161,25 @@ def make_coverage_json(gcnodata, data={}, basedir=''):
     get_file_data(data, fndata['file'])['funcs'][fndata['name']] = fnhc
 
     # Count up in/out for each block
-    blkin = [0] * len(fndata['bbs'])
-    blkout = [0] * len(fndata['bbs'])
-    for blkno in range(len(fndata['bbs'])):
-      bb = fndata['bbs'][blkno]
+    bbdata = fndata['bbs']
+    solve_computed_counts(bbdata)
+    blkin = [0] * len(bbdata)
+    blkout = [0] * len(bbdata)
+    for blkno in range(len(bbdata)):
+      bb = bbdata[blkno]
       for arc in bb['next']:
         blkout[blkno] += arc[2]
         blkin[arc[0]] += arc[2]
       # Branch data: for every bb that has two or more branch points, compute
       # each arc as a separate branch-data node
-      if len(bb['next']) > 1 and len(bb['lines']) > 0:
+      succs = [arc for arc in bb['next'] if not(arc[1] & FAKE_ARC)]
+      if len(succs) > 1 and len(bb['lines']) > 0:
         brfile, brline = bb['lines'][-1]
         branchdata = get_file_data(data, brfile)['branches']
         brdata = branchdata.setdefault((brline, blkno), {})
         for x in range(len(bb['next'])):
+          if bb['next'][x][1] & FAKE_ARC:
+            continue
           brdata[x] = brdata.get(x, 0) + bb['next'][x][2]
     # Function hit count == blkout for block 0
     fnhc[1] = blkout[0]
@@ -188,6 +195,86 @@ def make_coverage_json(gcnodata, data={}, basedir=''):
         linedata = get_file_data(data, line[0])['lines']
         linedata[line[1]] = linedata.get(line[1], 0) + blockhit
   return data
+
+def solve_computed_counts(bbdata):
+  # Phase 1: Add in previous links to the bbdata graph.
+  for bb in bbdata:
+    bb['prev'] = []
+  unsolved = set()
+  lineinfo = None
+  for blkno in range(len(bbdata)):
+    bb = bbdata[blkno]
+    for i in range(len(bb['next'])):
+      arc = bb['next'][i]
+      bbdata[arc[0]]['prev'].append(arc)
+      if arc[1] & COMPUTED_COUNT:
+        unsolved.add(blkno)
+        unsolved.add(arc[0])
+    # Apparently we need to fix up gcov's line information? this blows...
+    if len(bb['lines']) > 0:
+      lineinfo = bb['lines'][-1]
+    elif lineinfo is not None:
+      bb['lines'] = [lineinfo]
+
+  # Phase 2: Go through the entire graph and try to solve unsolved nodes
+  while len(unsolved) > 0:
+    notsolved = set()
+    for blkno in unsolved:
+      node = bbdata[blkno]
+      # We can't use the first or last nodes to solve the graph, since there's
+      # only one edge
+      if len(node['prev']) == 0 or len(node['next']) == 0:
+        continue
+
+      # Find the imbalance and number of edges to solve for
+      imbalance = 0
+      num_unsolved = 0
+      for arc in node['prev']:
+        imbalance += arc[2]
+        num_unsolved += (arc[1] & COMPUTED_COUNT != 0)
+      pre_unsolved = num_unsolved
+      for arc in node['next']:
+        imbalance -= arc[2]
+        num_unsolved += (arc[1] & COMPUTED_COUNT != 0)
+
+      # If we have only one unsolved edge, we can solve the balance at this node
+      if num_unsolved == 1:
+        if pre_unsolved == num_unsolved:
+          for arc in node['prev']:
+            if arc[1] & COMPUTED_COUNT:
+              arc[2] = -imbalance
+              arc[1] &= ~COMPUTED_COUNT
+        else:
+          for arc in node['next']:
+            if arc[1] & COMPUTED_COUNT:
+              arc[2] = imbalance
+              arc[1] &= ~COMPUTED_COUNT
+      else:
+        notsolved.add(blkno)
+
+    # Are we done with the loop?
+    if len(unsolved) == len(notsolved):
+      display_bb_graph(bbdata)
+      raise Exception("Infinite loop!")
+    unsolved = notsolved
+
+# Helper for displaying what these graphs look like
+def display_bb_graph(bbdata):
+  dotname = os.tmpnam()
+  dotf = open(dotname, 'w')
+  dotf.write('digraph G {\n')
+  for blkno in range(len(bbdata)):
+    dotf.write('  %d [label="%d %s"];\n' % (blkno, blkno,
+      ','.join(pos[0] + ':' + str(pos[1]) for pos in bbdata[blkno]['lines'])))
+    for arc in bbdata[blkno]['next']:
+      dotf.write('  %d -> %d [label="%x/%d"];\n' % (
+        blkno, arc[0], arc[1], arc[2]))
+  dotf.write('}')
+  dotf.close()
+  os.system('dot -Tpng -o %s.png %s' % (dotname, dotname))
+  os.system('display %s.png' % dotname)
+  os.unlink(dotname)
+  os.unlink(dotname + '.png')
 
 if __name__ == '__main__':
   gcno = io.open(sys.argv[1], 'rb')
