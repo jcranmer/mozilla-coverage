@@ -11,6 +11,20 @@ def read_string(f):
   fmt = '=%ds' % (read_struct('=I', f)[0] * 4)
   return read_struct(fmt, f)[0].strip('\x00')
 
+# How to understand our accumulated gcno data:
+# { 'version': the version stamp from the .gcno as a 4-char string,
+#   'funcs': [ uniqueID -> {
+#      'file': source path
+#      'line': source line
+#      'name': function name
+#      'bbs': [list of {
+#        'flags': flag data from gcov
+#        'next': [ (dest block #idx, flags, count) ],
+#        'lines': [ list of line nos in block ]
+#      }]
+#   }]
+# }
+
 def read_gcno_tag(f, data, curfn):
   if curfn:
     fndata = data['funcs'][curfn]
@@ -47,7 +61,7 @@ def read_gcno_tag(f, data, curfn):
         ldata.append((curfile, lineno))
       if curfile == '':
         break
-  else:
+  elif length != 0:
     raise Exception("Unknown tag %x" % tag)
   return curfn
 
@@ -57,8 +71,9 @@ def read_gcno_file(f):
   if magic != 0x67636e6f: # gcno, as a hex integer
     raise Exception("Unknown magic: %x" % magic)
   version = ''.join(chr((version >> shift) & 0xff) for shift in [24, 16, 8, 0])
+  stamp = ''.join(chr((stamp >> shift) & 0xff) for shift in [24, 16, 8, 0])
   # What's the stamp about? I don't know...
-  tldata = {'funcs': {}, 'version': version}
+  tldata = {'funcs': {}, 'version': version, 'stamp': stamp}
   curfn = ''
 
   # There has got to be an easier way to tell if we're at eof...
@@ -81,8 +96,12 @@ def read_gcda_tag(f, data, curfn):
   length = read_struct('=I', f)[0]
   if tag == 0x01000000: # GCOV_FUNCTION
     ident, checksum = read_struct('=II', f)
+    if data['stamp'] == 'LLVM':
+      # LLVM adds in these extra two fields, but doesn't use them
+      read_struct('=I', f)
+      read_string(f)
     # GCC 4.7 added a second checksum
-    if data['version'] > '407 ':
+    elif data['version'] > '407 ':
       read_struct('=I', f)
     fndata = data['funcs'][ident]
     return ident
@@ -132,7 +151,7 @@ def make_coverage_json(gcnodata, data={}, basedir=''):
       f = os.path.normpath(os.path.join(basedir, f))
     f = os.path.realpath(f)
     if f not in data:
-      data[f] = {'lines': {}, 'funcs': {}}
+      data[f] = {'lines': {}, 'funcs': {}, 'branches': {}}
     return data[f]
   for fn in gcnodata['funcs']:
     fndata = gcnodata['funcs'][fn]
@@ -147,13 +166,24 @@ def make_coverage_json(gcnodata, data={}, basedir=''):
       for arc in bb['next']:
         blkout[blkno] += arc[2]
         blkin[arc[0]] += arc[2]
+      # Branch data: for every bb that has two or more branch points, compute
+      # each arc as a separate branch-data node
+      if len(bb['next']) > 1 and len(bb['lines']) > 0:
+        brfile, brline = bb['lines'][-1]
+        branchdata = get_file_data(data, brfile)['branches']
+        brdata = branchdata.setdefault((brline, blkno), {})
+        for x in range(len(bb['next'])):
+          brdata[x] = brdata.get(x, 0) + bb['next'][x][2]
     # Function hit count == blkout for block 0
     fnhc[1] = blkout[0]
 
     # Convert block counts to line counts
+    # XXX: This is an overestimate. Consider a line like if (a || b); this
+    # produces two distinct basic blocks on the same line, and we'd double-count
+    # the execution of b.
     for blkno in range(len(fndata['bbs'])):
       bb = fndata['bbs'][blkno]
-      blockhit = blkin[blkno]
+      blockhit = blkout[blkno]
       for line in bb['lines']:
         linedata = get_file_data(data, line[0])['lines']
         linedata[line[1]] = linedata.get(line[1], 0) + blockhit
