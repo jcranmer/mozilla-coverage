@@ -10,7 +10,8 @@ var width = 1280, height = 720;
 
 // Coloring functions.
 function color_normal(ratio) {
-  return d3.rgb((1 - ratio) * 255, ratio * 255, 0);
+  return isNaN(ratio) ? d3.rgb("white")
+                      : d3.rgb((1 - ratio) * 255, ratio * 255, 0);
 }
 function color_skew(ratio) {
   return color_normal(ratio * ratio);
@@ -194,11 +195,13 @@ function reroot(new_root) {
   // Add details-on-demand tooltips
   $(".cell").tipsy({ gravity: 's', html: true, title: function() {
     var d = this.__data__;
-    var str = "File: " + get_source_file(d) + "<br/>" +
-      "Line coverage: " + d['lines-hit'] + "/" + d.lines + " (" +
-        d3.format(".3p")(d['lines-hit'] / d.lines) + ")<br/>" +
-      "Function coverage: " + d['funcs-hit'] + "/" + d.funcs + " (" +
-        d3.format(".3p")(d['funcs-hit'] / d.funcs) + ")";
+    var str = "File: " + get_source_file(d);
+    if (d['lines'] > 0)
+      str += "<br/>Line coverage: " + d['lines-hit'] + "/" + d.lines +
+             " (" + d3.format(".3p")(d['lines-hit'] / d.lines) + ")";
+    if (d['funcs'] > 0)
+      str += "<br/>Function coverage: " + d['funcs-hit'] + "/" + d.funcs +
+             " (" + d3.format(".3p")(d['funcs-hit'] / d.funcs) + ")";
     if (d['branches'] > 0)
       str += "<br/>Branch coverage: " + d['branches-hit'] + "/" + d.branches +
              " (" + d3.format(".3p")(d['branches-hit'] / d.branches) + ")";
