@@ -157,8 +157,10 @@ def make_coverage_json(gcnodata, data={}, basedir=''):
     return data[f]
   for fn in gcnodata['funcs']:
     fndata = gcnodata['funcs'][fn]
-    fnhc = [fndata['line'], 0]
-    get_file_data(data, fndata['file'])['funcs'][fndata['name']] = fnhc
+    outfnmap = get_file_data(data, fndata['file'])['funcs']
+    if fndata['name'] not in outfnmap:
+      outfnmap[fndata['name']] = [fndata['line'], 0]
+    fnhc = outfnmap[fndata['name']]
 
     # Count up in/out for each block
     bbdata = fndata['bbs']
@@ -182,7 +184,7 @@ def make_coverage_json(gcnodata, data={}, basedir=''):
             continue
           brdata[x] = brdata.get(x, 0) + bb['next'][x][2]
     # Function hit count == blkout for block 0
-    fnhc[1] = blkout[0]
+    fnhc[1] += blkout[0]
 
     # Convert block counts to line counts
     # XXX: This is an overestimate. Consider a line like if (a || b); this
