@@ -1,5 +1,7 @@
 #!/usr/bin/python
 
+import fnmatch
+
 class CoverageData:
   # data is a map of [testname -> fileData]
   # fileData is a map of [file -> perFileData]
@@ -142,6 +144,17 @@ class CoverageData:
             flatbrdata[brid] = flatbrdata.get(brid, 0) + brdata[brid]
     return data
 
+  def filterFilesByGlob(self, glob):
+    newdata = {}
+    for test in self._data:
+      testdata = self._data[test]
+      newtestdata = {}
+      for filename in fnmatch.filter(testdata.keys(), glob):
+        newtestdata[filename] = testdata[filename]
+      if len(newtestdata) > 0:
+        newdata[test] = newtestdata
+    self._data = newdata
+
 import os, sys
 
 def main(argv):
@@ -149,10 +162,12 @@ def main(argv):
   o = OptionParser()
   o.add_option('-a', '--add', dest="more_files", action="append",
       help="Add contents of coverage data", metavar="FILE")
-  o.add_option('-o', '--output', dest="outfile",
-      help="File to output data to", metavar="FILE")
   o.add_option('-c', '--collect', dest="gcda_dirs", action="append",
       help="Collect data from gcov results", metavar="DIR")
+  o.add_option('-e', '--extract', dest="extract_glob",
+      help="Extract only data for files matching PATTERN", metavar="PATTERN")
+  o.add_option('-o', '--output', dest="outfile",
+      help="File to output data to", metavar="FILE")
   o.add_option('-t', '--test-name', dest="testname",
       help="Use the NAME for the name of the test", metavar="NAME")
   (opts, args) = o.parse_args(argv)
@@ -181,6 +196,8 @@ def main(argv):
           print >>sys.stderr, "Processing file %s" % path
           coverage.loadGcdaAndGcno(test, path, os.path.join(dirpath, gcnoname))
 
+  if opts.extract_glob is not None:
+    coverage.filterFilesByGlob(opts.extract_glob)
   # Store it to output
   if opts.outfile != None:
     print >> sys.stderr, "Writing to file %s" % opts.outfile

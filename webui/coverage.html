@@ -53,13 +53,18 @@ function onLoad() {
     .style("position", "relative")
     .style("width", width + "px")
     .style("height", height + "px");
-  d3.json("test.json", loadJsonData);
+  d3.json("all.json", loadJsonData);
 
   // Coverage scales help
   d3.select("svg").append("g")
     .attr("transform", "translate(5, 5)")
     .call(d3.svg.axis().scale(d3.scale.linear().domain([0,100]).range([0,200]))
                 .tickPadding(10).ticks(3));
+
+  // Select changing test suites
+  d3.select("#testsuite").on("change", function () {
+    d3.json(this.value + ".json", loadJsonData);
+  });
 }
 
 var root = null;
@@ -274,6 +279,22 @@ path.domain { display: none; }
 </div><div>Area:
 <button class='first active' id='size-line'>Line</button><button
         class='last' id='size-func'>Function</button>
+</div>
+<div>Test:
+<select id="testsuite">
+  <option>all</option>
+  <option>check</option>
+  <option>crashtest</option>
+  <option>jsreftest</option>
+  <option>mochitest-1</option>
+  <option>mochitest-2</option>
+  <option>mochitest-3</option>
+  <option>mochitest-4</option>
+  <option>mochitest-5</option>
+  <option>mochitest-other</option>
+  <option>reftest</option>
+  <option>xpcshell</option>
+</select>
 </div>
 <h3>Instructions:</h3>
 <p>In the diagram, every rectangle represents a file in the source tree. The
