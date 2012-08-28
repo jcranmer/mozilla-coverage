@@ -1,17 +1,34 @@
 #!/usr/bin/python
 
-import sys, json
+import json
+import os
+import shutil
+import sys
 from ccov import CoverageData
 
-def main():
-  if len(sys.argv) != 3:
-    print "Usage: %s in.info out.json" % sys.argv[0]
+def main(argv):
+  from optparse import OptionParser
+  o = OptionParser()
+  o.add_option('-o', '--output', dest="outdir",
+      help="Directory to store all HTML files", metavar="DIRECTORY")
+  (opts, args) = o.parse_args(argv)
+  if opts.outdir is None:
+    print "Need to pass in -o!"
     sys.exit(1)
+
+  # Add in all the data
   cov = CoverageData()
-  cov.addFromLcovFile(open(sys.argv[1]))
+  for lcovFile in args[1:]:
+    cov.addFromLcovFile(open(lcovFile, 'r'))
   json_data = build_json_data(cov.getFlatData())
 
-  json.dump(json_data, open(sys.argv[2], 'w'))
+  # Make the output directory
+  if not os.path.exists(opts.outdir):
+    os.makedirs(opts.outdir)
+
+  # Dump out JSON files
+  json.dump(json_data, open(os.path.join(opts.outdir, 'all.json'), 'w'))
+  copy_static_files(opts.outdir)
 
 def build_json_data(data):
   # The output format is a tree structure, where each node looks like:
@@ -74,5 +91,10 @@ def build_json_data(data):
     json_data = json_data["files"][0]
   return json_data
 
+def copy_static_files(output):
+  staticdir = os.path.join(os.path.dirname(__file__), "webui")
+  for static in os.listdir(staticdir):
+    shutil.copy2(os.path.join(staticdir, static), os.path.join(output, static))
+
 if __name__ == '__main__':
-  main()
+  main(sys.argv)
