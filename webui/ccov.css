@@ -1,0 +1,58 @@
+body {
+  font-family: sans-serif;
+}
+
+h1 {
+  text-align: center;
+}
+
+/* Styles for the region between the two hrs */
+div.info-panel {
+  float: left;
+  margin-bottom: 0.5em;
+  margin-right: 2em;
+}
+div.info-panel + hr {
+  clear: both;
+}
+
+table#coveredtable {
+  margin: 0 auto;
+  min-width: 66%;
+}
+
+th {
+  font-weight: bold;
+  background-color: #6688D4;
+  color: white;
+  text-align: center;
+  padding: 0 1em;
+  font-size: 110%;
+}
+
+td {
+  background-color: #DAE7FE;
+  min-width: 3.5em;
+  padding: 0 0.5em;
+  text-align: right;
+}
+
+/* First column is left-aligned, and filenames are monospace */
+td:first-child {
+  text-align: left;
+}
+tbody td:first-child {
+  font-family: monospace;
+}
+
+/* Coverage colored backgrounds */
+.lowcov {
+  background-color: #FEBAC2;
+}
+.mediumcov {
+  background-color: #FEF8B1;
+}
+.highcov {
+  background-color: #C5FEBA;
+}
+

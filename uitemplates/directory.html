@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html><head>
+<title>Code coverage</title>
+<link href="${depth}/ccov.css" rel="stylesheet" type="text/css" />
+</head>
+<body>
+<h1>Code coverage report for <span id="filepath">${directory}</span></h1>
+<hr>
+<div class="info-panel">Test:
+<select id="testsuite">${testoptions}</select>
+</div>
+<div class="info-panel">Date compiled: ${date}</div>
+<div class="info-panel"><a href="${depth}/coverage.html?dir=${directory}">Graphical Overview</a> | <b>Detailed Report</b></div>
+<div class="info-panel"><a href="..">Parent directory</a></div>
+<hr>
+<table id="coveredtable">
+<thead>
+  <tr><th>Filename</th><th colspan="2">Line</th><th colspan="2">Function</th><th colspan="2">Branch</th></tr>
+</thead>
+<tbody>
+  ${tbody}
+</tbody>
+<tfoot>
+  ${tfoot}
+</table>
+</body>
+</html>
