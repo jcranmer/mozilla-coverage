@@ -1,5 +1,6 @@
 #!/usr/bin/python
 
+import cgi
 import json
 import os
 import shutil
@@ -20,16 +21,14 @@ def main(argv):
   cov = CoverageData()
   for lcovFile in args[1:]:
     cov.addFromLcovFile(open(lcovFile, 'r'))
-  json_data = build_json_data(cov.getFlatData())
 
   # Make the output directory
   if not os.path.exists(opts.outdir):
     os.makedirs(opts.outdir)
 
-  # Dump out JSON files
-  json.dump(json_data, open(os.path.join(opts.outdir, 'all.json'), 'w'))
-  build_directory_index('', json_data, opts.outdir)
-  copy_static_files(opts.outdir)
+  builder = UiBuilder(cov, opts.outdir)
+  builder.makeStaticOutput()
+  builder.makeDynamicOutput()
 
 def build_json_data(data):
   # The output format is a tree structure, where each node looks like:
@@ -92,70 +91,137 @@ def build_json_data(data):
     json_data = json_data["files"][0]
   return json_data
 
-def build_directory_index(dirname, jsondata, output):
-  # Utility method for printing out rows of the table
-  def summary_string(lhs, jsondata):
-    output = '<tr>'
-    output += '<td>%s</td>' % lhs
-    for piece in ['lines', 'funcs', 'branches']:
-      hit = jsondata[piece + '-hit']
-      count = jsondata[piece]
-      if count == 0:
-        output += '<td>0 / 0</td><td>-</td>'
+class UiBuilder(object):
+  def __init__(self, covdata, outdir):
+    self.data = covdata
+    self.flatdata = self.data.getFlatData()
+    self.outdir = outdir
+    self.uidir = os.path.dirname(__file__)
+    self.relsrc = '/' # XXX
+
+  def makeStaticOutput(self):
+    staticdir = os.path.join(self.uidir, "webui")
+    for static in os.listdir(staticdir):
+      shutil.copy2(os.path.join(staticdir, static),
+                   os.path.join(self.outdir, static))
+
+  def makeDynamicOutput(self):
+    # Dump out JSON files
+    json_data = build_json_data(self.flatdata)
+    json.dump(json_data, open(os.path.join(self.outdir, 'all.json'), 'w'))
+    self._makeDirectoryIndex('', json_data)
+    pass
+
+  def _readTemplate(self, name):
+    from string import Template
+    templatefile = os.path.join(self.uidir, "uitemplates", name)
+    fd = open(templatefile, 'r')
+    try:
+      template = fd.read()
+    finally:
+      fd.close()
+    return Template(template)
+
+  def _makeDirectoryIndex(self, dirname, jsondata):
+    # Utility method for printing out rows of the table
+    def summary_string(lhs, jsondata):
+      output = '<tr>'
+      output += '<td>%s</td>' % lhs
+      for piece in ['lines', 'funcs', 'branches']:
+        hit = jsondata[piece + '-hit']
+        count = jsondata[piece]
+        if count == 0:
+          output += '<td>0 / 0</td><td>-</td>'
+        else:
+          ratio = 100.0 * hit / count
+          if ratio < 75.0: clazz = "lowcov"
+          elif ratio < 90.0: clazz = "mediumcov"
+          else: clazz = "highcov"
+          output += '<td class="%s">%d / %d</td><td class="%s">%.1f%%</td>' % (
+            clazz, hit, count, clazz, ratio)
+      return output + '</tr>'
+    htmltmp = self._readTemplate('directory.html')
+
+    jsondata['files'].sort(lambda x, y: cmp(x['name'], y['name']))
+
+    # Parameters for output
+    parameters = {}
+    parameters['directory'] = dirname
+    parameters['depth'] = '/'.join('..' for x in dirname.split('/'))
+    parameters['testoptions'] = '<option>all</option>' # XXX Add more test data
+    from datetime import date
+    parameters['date'] = date.today().isoformat()
+
+    tablestr = '\n'.join(summary_string(
+      '<a href="%s">%s</a>' % (child['name'], child['name']), child)
+                         for child in jsondata['files'])
+    parameters['tbody'] = tablestr
+    parameters['tfoot'] = summary_string('Total', jsondata)
+
+    outputdir = os.path.join(self.outdir, dirname)
+    if not os.path.exists(outputdir):
+      os.makedirs(outputdir)
+    fd = open(os.path.join(outputdir, 'index.html'), 'w')
+    try:
+      fd.write(htmltmp.substitute(parameters))
+    finally:
+      fd.close()
+
+    # Recursively build for all files in the directory
+    for child in jsondata['files']:
+      if len(child['files']) > 0:
+        self._makeDirectoryIndex(os.path.join(dirname, child['name']), child)
       else:
-        ratio = 100.0 * hit / count
-        if ratio < 75.0: clazz = "lowcov"
-        elif ratio < 90.0: clazz = "mediumcov"
-        else: clazz = "highcov"
-        output += '<td class="%s">%d / %d</td><td class="%s">%.1f%%</td>' % (
-          clazz, hit, count, clazz, ratio)
-    return output + '</tr>'
+        self._makeFileData(dirname, child['name'], child)
 
-  # Read in the template
-  from string import Template
-  templatefile = os.path.join(os.path.dirname(__file__),
-    "uitemplates", "directory.html")
-  fd = open(templatefile, 'r')
-  try:
-    html = fd.read()
-  finally:
-    fd.close()
+  def _makeFileData(self, dirname, filename, jsondata):
+    print 'Writing %s/%s.html' % (dirname, filename)
+    htmltmp = self._readTemplate('file.html')
 
-  jsondata['files'].sort(lambda x, y: cmp(x['name'], y['name']))
+    parameters = {}
+    parameters['file'] = os.path.join(dirname, filename)
+    parameters['directory'] = dirname
+    parameters['depth'] = '/'.join('..' for x in dirname.split('/'))
+    parameters['testoptions'] = '<option>all</option>' # XXX Add more test data
+    from datetime import date
+    parameters['date'] = date.today().isoformat()
 
-  parameters = {}
-  parameters['directory'] = dirname
-  parameters['depth'] = '/'.join('..' for x in dirname.split('/'))
-  parameters['testoptions'] = '<option>all</option>' # XXX Add more test data
-  from datetime import date
-  parameters['date'] = date.today().isoformat()
+    # Read the input file
+    srcfile = os.path.join(self.relsrc, dirname, filename)
+    if not os.path.exists(srcfile):
+      parameters['tbody'] = '<tr><td colspan="5">File could not be found</td></tr>'
+    else:
+      fd = open(os.path.join(self.relsrc, dirname, filename), 'r')
+      try:
+        srclines = fd.readlines()
+      finally:
+        fd.close()
 
-  tablestr = '\n'.join(summary_string(
-    '<a href="%s">%s</a>' % (child['name'], child['name']), child)
-                       for child in jsondata['files'])
-  parameters['tbody'] = tablestr
-  parameters['tfoot'] = summary_string('Total', jsondata)
+      lineno = 1
+      outlines = []
+      flatdata = self.flatdata[srcfile]
+      for line in srclines:
+        covstatus = ''
+        linecount = ''
+        if lineno in flatdata['lines']:
+          linecount = str(flatdata['lines'][lineno])
+          iscov = linecount != '0'
+          covstatus = ' class="highcov"' if iscov else ' class="lowcov"'
+        outlines.append(('  <tr%s><td>%d</td>' +
+          '<td></td><td>%s</td><td>%s</td></tr>\n'
+          ) % (covstatus, lineno, linecount, cgi.escape(line.rstrip())))
+        lineno += 1
+      parameters['tbody'] = ''.join(outlines)
 
-  outputdir = os.path.join(output, dirname)
-  if not os.path.exists(outputdir):
-    os.makedirs(outputdir)
-  fd = open(os.path.join(outputdir, 'index.html'), 'w')
-  try:
-    htmltmp = Template(html)
-    fd.write(htmltmp.substitute(parameters))
-  finally:
-    fd.close()
+    outputdir = os.path.join(self.outdir, dirname)
+    if not os.path.exists(outputdir):
+      os.makedirs(outputdir)
+    fd = open(os.path.join(outputdir, filename + '.html'), 'w')
+    try:
+      fd.write(htmltmp.substitute(parameters))
+    finally:
+      fd.close()
 
-  # Recursively build for all files in the directory
-  for child in jsondata['files']:
-    if len(child['files']) > 0:
-      build_directory_index(os.path.join(dirname, child['name']), child, output)
-    # XXX: add file listings
-
-def copy_static_files(output):
-  staticdir = os.path.join(os.path.dirname(__file__), "webui")
-  for static in os.listdir(staticdir):
-    shutil.copy2(os.path.join(staticdir, static), os.path.join(output, static))
 
 if __name__ == '__main__':
   main(sys.argv)

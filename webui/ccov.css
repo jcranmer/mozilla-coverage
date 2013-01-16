@@ -56,3 +56,30 @@ tbody td:first-child {
   background-color: #C5FEBA;
 }
 
+/* File coverage data styles */
+table#filetable {
+  font-family: monospace;
+  border-spacing: 0;
+}
+table#filetable td, table#filetable th {
+  background-color: inherit;
+  color: black;
+  padding: 0 0.5em;
+  white-space: pre;
+}
+table#filetable td:first-child {
+  background-color: #EFE383;
+  text-align: right;
+}
+table#filetable td:not(:first-child):not(:last-child) {
+  text-align: right;
+  border-right: solid black 1px;
+  min-width: 5em;
+}
+table#filetable th {
+  font-size: 90%;
+  text-align: center;
+}
+table#filetable tr > *:last-child {
+  text-align: left;
+}
