@@ -216,6 +216,10 @@ class UiBuilder(object):
       for line, branchid in brdatakeys:
         branches = list(flatdata['branches'][line, branchid].iteritems())
         branches.sort()
+        # Break up chunks at 8 branch widths so that core interpreter switches
+        # don't require page scrolls.
+        # I would use CSS max-width on columns to control this instead, but a
+        # certain layout engine doesn't take into account max-width constraints.
         chunks = []
         for i in range((len(branches) + 7)/8):
           chunks.append(''.join('<span class="%s" title="%d"> %s </span>' % (

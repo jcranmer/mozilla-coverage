@@ -1,6 +1,6 @@
 <!DOCTYPE html>
 <html><head>
-<title>Code coverage</title>
+<title>Code coverage graphical overview</title>
 <script type="application/javascript" src="http://d3js.org/d3.v2.js"></script>
 <script type="application/javascript" src="http://code.jquery.com/jquery-1.6.2.min.js"></script>
 <script type="text/javascript" src="jquery.tipsy.js"></script>
@@ -64,6 +64,10 @@ function onLoad() {
   // Select changing test suites
   d3.select("#testsuite").on("change", function () {
     d3.json(this.value + ".json", loadJsonData);
+    });
+
+  d3.select("#details").on("click", function () {
+      location.assign(get_source_file(root));
   });
 }
 
@@ -296,6 +300,7 @@ path.domain { display: none; }
   <option>xpcshell</option>
 </select>
 </div>
+<button class="first last" id="details">Detailed report</button>
 <h3>Instructions:</h3>
 <p>In the diagram, every rectangle represents a file in the source tree. The
 size that the rectangle occupies is indicative of how many lines or functions
