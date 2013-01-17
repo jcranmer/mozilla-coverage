@@ -30,74 +30,78 @@ def main(argv):
   builder.makeStaticOutput()
   builder.makeDynamicOutput()
 
-def build_json_data(data):
-  # The output format is a tree structure, where each node looks like:
-  # { lines: <number of lines in the file/directory>,
-  #   lines-hit: <number of lines that have a count > 0 in file/directory>,
-  #   funcs: <number of functions in the file/directory>,
-  #   funcs-hit: <number of functions that have a count > 0 in file/directory>,
-  #   branches: <number of branches>,
-  #   branches-hit: <number of branches with count > 0>,
-  #   files: [ list of children of this node ],
-  #   name: "local name of the file, not the full path"
-  # }
-  default_dict = {"lines": 0, "lines-hit": 0, "funcs": 0, "funcs-hit": 0,
-                  "branches": 0, "branches-hit": 0, "files": []}
-  json_data = dict(default_dict)
-  for filename in data:
-    parts = filename.split('/')
-    linehit, linecount = 0, 0
-    fnhit, fncount = 0, 0
-    brhit, brcount = 0, 0
-    if "lines" in data[filename]:
-      linehit += len([k for k in data[filename]["lines"] if data[filename]["lines"][k] != 0])
-      linecount += len(data[filename]["lines"])
-    if "funcs" in data[filename]:
-      fnhit += len([k for k in data[filename]["funcs"] if data[filename]["funcs"][k][1] != 0])
-      fncount += len(data[filename]["funcs"])
-    if "branches" in data[filename]:
-      brdata = data[filename]["branches"]
-      for brinfo in brdata.itervalues():
-        brcount += len(brinfo)
-        brhit += len([k for k in brinfo if brinfo[k] != 0])
-    blob = json_data
-    for component in parts:
-      blob["lines"] += linecount
-      blob["lines-hit"] += linehit
-      blob["funcs"] += fncount
-      blob["funcs-hit"] += fnhit
-      blob["branches"] += brcount
-      blob["branches-hit"] += brhit
-      for f in blob["files"]:
-        if f["name"] == component:
-          blob = f
-          break
-      else:
-        blob["files"].append(default_dict.copy())
-        blob = blob["files"][-1]
-        blob["name"] = component
-        blob["files"] = []
-    blob["lines"] += linecount
-    blob["lines-hit"] += linehit
-    blob["funcs"] += fncount
-    blob["funcs-hit"] += fnhit
-    blob["branches"] += brcount
-    blob["branches-hit"] += brhit
-
-  # Make the root node be the lowest path where filenames diverge. This
-  # generally works, assuming that things like /usr/include/ are removed from
-  # the coverage files before hand.
-  while len(json_data["files"]) == 1:
-    json_data = json_data["files"][0]
-  return json_data
-
 class UiBuilder(object):
   def __init__(self, covdata, outdir):
     self.data = covdata
     self.flatdata = self.data.getFlatData()
     self.outdir = outdir
     self.uidir = os.path.dirname(__file__)
-    self.relsrc = '/' # XXX
+
+  def buildJSONData(self):
+    # The output format is a tree structure, where each node looks like:
+    # { lines: <number of lines in the file/directory>,
+    #   lines-hit: <number of lines that have a count > 0 in file/directory>,
+    #   funcs: <number of functions in the file/directory>,
+    #   funcs-hit: <number of functions that have a count > 0 in file/directory>,
+    #   branches: <number of branches>,
+    #   branches-hit: <number of branches with count > 0>,
+    #   files: [ list of children of this node ],
+    #   name: "local name of the file, not the full path"
+    # }
+    data = self.flatdata
+    default_dict = {"lines": 0, "lines-hit": 0, "funcs": 0, "funcs-hit": 0,
+                    "branches": 0, "branches-hit": 0, "files": []}
+    json_data = dict(default_dict)
+    for filename in data:
+      parts = filename.split('/')
+      linehit, linecount = 0, 0
+      fnhit, fncount = 0, 0
+      brhit, brcount = 0, 0
+      if "lines" in data[filename]:
+        linehit += len([k for k in data[filename]["lines"] if data[filename]["lines"][k] != 0])
+        linecount += len(data[filename]["lines"])
+      if "funcs" in data[filename]:
+        fnhit += len([k for k in data[filename]["funcs"] if data[filename]["funcs"][k][1] != 0])
+        fncount += len(data[filename]["funcs"])
+      if "branches" in data[filename]:
+        brdata = data[filename]["branches"]
+        for brinfo in brdata.itervalues():
+          brcount += len(brinfo)
+          brhit += len([k for k in brinfo if brinfo[k] != 0])
+      blob = json_data
+      for component in parts:
+        blob["lines"] += linecount
+        blob["lines-hit"] += linehit
+        blob["funcs"] += fncount
+        blob["funcs-hit"] += fnhit
+        blob["branches"] += brcount
+        blob["branches-hit"] += brhit
+        for f in blob["files"]:
+          if f["name"] == component:
+            blob = f
+            break
+        else:
+          blob["files"].append(default_dict.copy())
+          blob = blob["files"][-1]
+          blob["name"] = component
+          blob["files"] = []
+      blob["lines"] += linecount
+      blob["lines-hit"] += linehit
+      blob["funcs"] += fncount
+      blob["funcs-hit"] += fnhit
+      blob["branches"] += brcount
+      blob["branches-hit"] += brhit
+
+    # Make the root node be the lowest path where filenames diverge. This
+    # generally works, assuming that things like /usr/include/ are removed from
+    # the coverage files before hand.
+    self.relsrc = ''
+    while len(json_data["files"]) == 1:
+      json_data = json_data["files"][0]
+      if 'name' in json_data:
+        self.relsrc += '/' + json_data['name']
+    self.relsrc = self.relsrc.replace('//', '/')
+    return json_data
 
   def makeStaticOutput(self):
     staticdir = os.path.join(self.uidir, "webui")
@@ -107,10 +111,9 @@ class UiBuilder(object):
 
   def makeDynamicOutput(self):
     # Dump out JSON files
-    json_data = build_json_data(self.flatdata)
+    json_data = self.buildJSONData()
     json.dump(json_data, open(os.path.join(self.outdir, 'all.json'), 'w'))
     self._makeDirectoryIndex('', json_data)
-    pass
 
   def _readTemplate(self, name):
     from string import Template
@@ -147,13 +150,21 @@ class UiBuilder(object):
     # Parameters for output
     parameters = {}
     parameters['directory'] = dirname
-    parameters['depth'] = '/'.join('..' for x in dirname.split('/'))
+    if dirname:
+      parameters['depth'] = '/'.join('..' for x in dirname.split('/'))
+    else:
+      parameters['depth'] = '.'
     parameters['testoptions'] = '<option>all</option>' # XXX Add more test data
     from datetime import date
     parameters['date'] = date.today().isoformat()
 
+    def htmlname(json):
+      if len(json['files']) > 0:
+        return json['name']
+      else:
+        return json['name'] + '.html'
     tablestr = '\n'.join(summary_string(
-      '<a href="%s">%s</a>' % (child['name'], child['name']), child)
+      '<a href="%s">%s</a>' % (htmlname(child), child['name']), child)
                          for child in jsondata['files'])
     parameters['tbody'] = tablestr
     parameters['tfoot'] = summary_string('Total', jsondata)
