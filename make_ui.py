@@ -208,9 +208,26 @@ class UiBuilder(object):
       finally:
         fd.close()
 
+      flatdata = self.flatdata[srcfile]
+      # Precompute branch data for each line.
+      brlinedata = {}
+      brdatakeys = list(flatdata['branches'])
+      brdatakeys.sort()
+      for line, branchid in brdatakeys:
+        branches = list(flatdata['branches'][line, branchid].iteritems())
+        branches.sort()
+        chunks = []
+        for i in range((len(branches) + 7)/8):
+          chunks.append(''.join('<span class="%s" title="%d"> %s </span>' % (
+              "highcov" if count > 0 else "lowcov", count,
+              "+" if count > 0 else "-")
+            for key, count in branches[8 * i:8 * (i + 1)]))
+        outstr = '<span data-branchid="%d">[%s]</span>' % (
+          branchid, '<br>'.join(chunks))
+        brlinedata.setdefault(line, []).append(outstr)
+
       lineno = 1
       outlines = []
-      flatdata = self.flatdata[srcfile]
       for line in srclines:
         covstatus = ''
         linecount = ''
@@ -218,9 +235,14 @@ class UiBuilder(object):
           linecount = str(flatdata['lines'][lineno])
           iscov = linecount != '0'
           covstatus = ' class="highcov"' if iscov else ' class="lowcov"'
+        if lineno in brlinedata:
+          brcount = '<br>'.join(brlinedata[lineno])
+        else:
+          brcount = ''
         outlines.append(('  <tr%s><td>%d</td>' +
-          '<td></td><td>%s</td><td>%s</td></tr>\n'
-          ) % (covstatus, lineno, linecount, cgi.escape(line.rstrip())))
+          '<td>%s</td><td>%s</td><td>%s</td></tr>\n'
+          ) % (covstatus, lineno, brcount, linecount,
+               cgi.escape(line.rstrip())))
         lineno += 1
       parameters['tbody'] = ''.join(outlines)
 
