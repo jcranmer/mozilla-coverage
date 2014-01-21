@@ -122,8 +122,11 @@ class CoverageData:
     gcov.make_coverage_json(gcnodata, self._data[testname])
  
   def getFlatData(self):
+      return self._getFlatData(self.getTests())
+
+  def _getFlatData(self, keys):
     data = {}
-    for test in self._data:
+    for test in keys:
       testdata = self._data[test]
       for file in testdata:
         fdata = data.setdefault(file, {"lines": {}, "funcs": {}, "branches": {}})
@@ -143,6 +146,12 @@ class CoverageData:
           for brid in brdata:
             flatbrdata[brid] = flatbrdata.get(brid, 0) + brdata[brid]
     return data
+
+  def getTestData(self, test):
+        return self._getFlatData([test])
+
+  def getTests(self):
+        return self._data.keys()
 
   def filterFilesByGlob(self, glob):
     newdata = {}
