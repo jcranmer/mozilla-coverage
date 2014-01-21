@@ -8,34 +8,37 @@ import sys
 from ccov import CoverageData
 
 def main(argv):
-  from optparse import OptionParser
-  o = OptionParser()
-  o.add_option('-o', '--output', dest="outdir",
-      help="Directory to store all HTML files", metavar="DIRECTORY")
-  (opts, args) = o.parse_args(argv)
-  if opts.outdir is None:
-    print "Need to pass in -o!"
-    sys.exit(1)
+    from optparse import OptionParser
+    o = OptionParser()
+    o.add_option('-o', '--output', dest="outdir",
+        help="Directory to store all HTML files", metavar="DIRECTORY")
+    o.add_option('-s', '--source-dir', dest="basedir",
+        help="Base directory for source code", metavar="DIRECTORY")
+    (opts, args) = o.parse_args(argv)
+    if opts.outdir is None:
+        print "Need to pass in -o!"
+        sys.exit(1)
 
-  # Add in all the data
-  cov = CoverageData()
-  for lcovFile in args[1:]:
-    cov.addFromLcovFile(open(lcovFile, 'r'))
+    # Add in all the data
+    cov = CoverageData()
+    for lcovFile in args[1:]:
+        cov.addFromLcovFile(open(lcovFile, 'r'))
 
-  # Make the output directory
-  if not os.path.exists(opts.outdir):
-    os.makedirs(opts.outdir)
+    # Make the output directory
+    if not os.path.exists(opts.outdir):
+        os.makedirs(opts.outdir)
 
-  builder = UiBuilder(cov, opts.outdir)
-  builder.makeStaticOutput()
-  builder.makeDynamicOutput()
+    builder = UiBuilder(cov, opts.outdir, opts.basedir)
+    builder.makeStaticOutput()
+    builder.makeDynamicOutput()
 
 class UiBuilder(object):
-  def __init__(self, covdata, outdir):
+  def __init__(self, covdata, outdir, basedir):
     self.data = covdata
     self.flatdata = self.data.getFlatData()
     self.outdir = outdir
     self.uidir = os.path.dirname(__file__)
+    self.basedir = basedir
 
   def buildJSONData(self):
     # The output format is a tree structure, where each node looks like:
@@ -101,6 +104,8 @@ class UiBuilder(object):
       if 'name' in json_data:
         self.relsrc += '/' + json_data['name']
     self.relsrc = self.relsrc.replace('//', '/')
+    if self.basedir is None:
+        self.basedir = self.relsrc
     return json_data
 
   def makeStaticOutput(self):
@@ -198,17 +203,18 @@ class UiBuilder(object):
     parameters['date'] = date.today().isoformat()
 
     # Read the input file
-    srcfile = os.path.join(self.relsrc, dirname, filename)
+    srcfile = os.path.join(self.basedir, dirname, filename)
+    filekey = os.path.join(self.relsrc, dirname, filename)
     if not os.path.exists(srcfile):
       parameters['tbody'] = '<tr><td colspan="5">File could not be found</td></tr>'
     else:
-      fd = open(os.path.join(self.relsrc, dirname, filename), 'r')
+      fd = open(srcfile, 'r')
       try:
         srclines = fd.readlines()
       finally:
         fd.close()
 
-      flatdata = self.flatdata[srcfile]
+      flatdata = self.flatdata[filekey]
       # Precompute branch data for each line.
       brlinedata = {}
       brdatakeys = list(flatdata['branches'])
