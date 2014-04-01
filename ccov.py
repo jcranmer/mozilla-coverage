@@ -1,6 +1,10 @@
 #!/usr/bin/python
 
 import fnmatch
+import re
+import shutil
+import subprocess
+import tempfile
 
 class CoverageData:
   # data is a map of [testname -> fileData]
@@ -120,7 +124,18 @@ class CoverageData:
     gcnodata = gcov.read_gcno_file(io.open(gcnopath, "rb"))
     gcov.add_gcda_counts(io.open(gcdapath, "rb"), gcnodata)
     gcov.make_coverage_json(gcnodata, self._data[testname])
- 
+
+  def loadViaGcov(self, testname, dirwalk, gcovtool):
+        iterpaths = []
+        for dirpath, dirnames, filenames in os.walk(dirwalk):
+            iterpaths.append((dirpath,
+                filter(lambda x: x.endswith('.gcda'), filenames)))
+        iterpaths = filter(lambda x: x[-1], iterpaths)
+        table = self._data.setdefault(testname, {})
+        loader = GcovLoader(dirwalk, gcovtool, table=table)
+        for directory, gcdas in iterpaths:
+            loader.loadDirectory(directory, gcdas)
+
   def getFlatData(self):
       return self._getFlatData(self.getTests())
 
@@ -164,6 +179,63 @@ class CoverageData:
         newdata[test] = newtestdata
     self._data = newdata
 
+class GcovLoader(object):
+    def __init__(self, basedir, gcovtool='gcov', table={}):
+        self.gcovtool = gcovtool
+        self.basedir = basedir
+        self.table = table
+
+    def loadDirectory(self, directory, gcda_files):
+        print 'Processing %s' % directory
+        gcda_files = map(lambda f: os.path.join(directory, f), gcda_files)
+        gcovdir = tempfile.mktemp("gcovdir")
+        os.mkdir(gcovdir)
+        with open('/dev/null', 'w') as hideOutput:
+            subprocess.check_call([self.gcovtool, "-b", "-f"] + gcda_files,
+                cwd=gcovdir, stdout=hideOutput, stderr=hideOutput)
+        for gcovfile in os.listdir(gcovdir):
+            with open(os.path.join(gcovdir, gcovfile)) as fd:
+                self._readGcovFile(fd, directory)
+        shutil.rmtree(gcovdir)
+
+    def _readGcovFile(self, fd, relpath):
+        lineDataRe = re.compile("\s*([^:]+):\s*([0-9]+):(.*)$")
+        functionDataRe = re.compile("function (.*) called ([0-9]+)")
+        lineno = 0
+        for line in fd:
+            line = line.strip()
+            match = lineDataRe.match(line)
+            if match is not None:
+                count = match.group(1)
+                lineno = int(match.group(2))
+                data = match.group(3)
+                if lineno == 0 and data.startswith('Source:'):
+                    # Build the filename
+                    filename = data[data.find(':')+1:]
+                    filename = os.path.abspath(os.path.join(relpath, filename))
+                    # Set the accumulator tables
+                    if not filename in self.table:
+                        fulltable = { "lines": {}, "funcs": {}, "branches": {} }
+                        self.table[filename] = fulltable
+                    else:
+                        fulltable = self.table[filename]
+                    functionTable = fulltable['funcs']
+                    lineTable = fulltable['lines']
+                elif lineno >= 1 and count != '-':
+                    if count == '#####':
+                        count = 0
+                    else:
+                        count = int(count)
+                    lineTable[lineno] = lineTable.get(lineno, 0) + count
+                continue
+            match = functionDataRe.match(line)
+            if match is not None:
+                func = match.group(1)
+                fncount = int(match.group(2))
+                fulltable['funcs'][func] = (lineno + 1, fncount +
+                    fulltable['funcs'].get(func, (0, 0))[-1])
+                continue
+
 import os, sys
 
 def main(argv):
@@ -171,8 +243,12 @@ def main(argv):
   o = OptionParser()
   o.add_option('-a', '--add', dest="more_files", action="append",
       help="Add contents of coverage data", metavar="FILE")
-  o.add_option('-c', '--collect', dest="gcda_dirs", action="append",
+  o.add_option('--experimental-collect', dest="gcda_dirs", action="append",
       help="Collect data from gcov results", metavar="DIR")
+  o.add_option('-c', '--gcov-collect', dest="gcov_dirs", action="append",
+      help="Collect data from gcov results", metavar="DIR")
+  o.add_option('--gcov-tool', dest="gcov_tool", default="gcov",
+      help="Version of gcov to use to extract data")
   o.add_option('-e', '--extract', dest="extract_glob",
       help="Extract only data for files matching PATTERN", metavar="PATTERN")
   o.add_option('-o', '--output', dest="outfile",
@@ -201,9 +277,11 @@ def main(argv):
       for f in filenames:
         gcnoname = f[:-2] + 'no'
         path = os.path.join(dirpath, f)
-        if f[-5:] == '.gcda' and gcnoname in filenames:
+        if f.endswith('.gcda') and gcnoname in filenames:
           print >>sys.stderr, "Processing file %s" % path
           coverage.loadGcdaAndGcno(test, path, os.path.join(dirpath, gcnoname))
+  for gcovdir in (opts.gcov_dirs or []):
+      coverage.loadViaGcov(test, gcovdir, opts.gcov_tool)
 
   if opts.extract_glob is not None:
     coverage.filterFilesByGlob(opts.extract_glob)
