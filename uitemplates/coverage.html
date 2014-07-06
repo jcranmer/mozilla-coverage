@@ -1,7 +1,8 @@
 <!DOCTYPE html>
 <html><head>
+<meta charset="UTF-8"/>
 <title>Code coverage graphical overview</title>
-<script type="application/javascript" src="http://d3js.org/d3.v2.js"></script>
+<script src="http://d3js.org/d3.v3.min.js" charset="UTF-8"></script>
 <script type="application/javascript" src="http://code.jquery.com/jquery-1.6.2.min.js"></script>
 <script type="text/javascript" src="jquery.tipsy.js"></script>
 <script type="application/javascript">
@@ -202,7 +203,7 @@ function reroot(new_root) {
   d3.selectAll(".tipsy").remove();
 
   // Add details-on-demand tooltips
-  $(".cell").tipsy({ gravity: 's', html: true, title: function() {
+  $$(".cell").tipsy({ gravity: 's', html: true, title: function() {
     var d = this.__data__;
     var str = "File: " + get_source_file(d);
     if (d['lines'] > 0)
@@ -286,18 +287,7 @@ path.domain { display: none; }
 </div>
 <div>Test:
 <select id="testsuite">
-  <option>all</option>
-  <option>check</option>
-  <option>crashtest</option>
-  <option>jsreftest</option>
-  <option>mochitest-1</option>
-  <option>mochitest-2</option>
-  <option>mochitest-3</option>
-  <option>mochitest-4</option>
-  <option>mochitest-5</option>
-  <option>mochitest-other</option>
-  <option>reftest</option>
-  <option>xpcshell</option>
+  ${tests}
 </select>
 </div>
 <button class="first last" id="details">Detailed report</button>

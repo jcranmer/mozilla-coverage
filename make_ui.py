@@ -134,6 +134,10 @@ class UiBuilder(object):
             test_data = self.buildJSONData(small_data)
             json.dump(test_data,
                 open(os.path.join(self.outdir, test + '.json'), 'w'))
+        covtemp = self._readTemplate("coverage.html")
+        with open(os.path.join(self.outdir, "coverage.html"), 'w') as fd:
+            fd.write(covtemp.substitute({'tests':
+                '\n'.join(('<option>%s</option>' % t) for t in self.tests)}))
         self._makeDirectoryIndex('', json_data)
 
     def _readTemplate(self, name):
