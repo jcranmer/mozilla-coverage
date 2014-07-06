@@ -132,7 +132,7 @@ class UiBuilder(object):
                 continue
             self.tests.append(test)
             test_data = self.buildJSONData(small_data)
-            json.dump(json_data,
+            json.dump(test_data,
                 open(os.path.join(self.outdir, test + '.json'), 'w'))
         self._makeDirectoryIndex('', json_data)
 
@@ -215,7 +215,8 @@ class UiBuilder(object):
       parameters['file'] = os.path.join(dirname, filename)
       parameters['directory'] = dirname
       parameters['depth'] = '/'.join('..' for x in dirname.split('/'))
-      parameters['testoptions'] = '<option>all</option>' # XXX Add more test data
+      parameters['testoptions'] = '<option>all</option>\n' + '\n'.join(
+         '<option>%s</option>' % s for s in self.data.getTests())
       from datetime import date
       parameters['date'] = date.today().isoformat()
 
