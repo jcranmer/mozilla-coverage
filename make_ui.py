@@ -208,81 +208,91 @@ class UiBuilder(object):
           self._makeFileData(dirname, child['name'], child)
 
     def _makeFileData(self, dirname, filename, jsondata):
-      print 'Writing %s/%s.html' % (dirname, filename)
-      htmltmp = self._readTemplate('file.html')
+        print 'Writing %s/%s.html' % (dirname, filename)
+        htmltmp = self._readTemplate('file.html')
 
-      parameters = {}
-      parameters['file'] = os.path.join(dirname, filename)
-      parameters['directory'] = dirname
-      parameters['depth'] = '/'.join('..' for x in dirname.split('/'))
-      parameters['testoptions'] = '<option>all</option>\n' + '\n'.join(
-         '<option>%s</option>' % s for s in self.data.getTests())
-      from datetime import date
-      parameters['date'] = date.today().isoformat()
+        parameters = {}
+        parameters['file'] = os.path.join(dirname, filename)
+        parameters['directory'] = dirname
+        parameters['depth'] = '/'.join('..' for x in dirname.split('/'))
+        parameters['testoptions'] = '\n'.join(
+           '<option>%s</option>' % s for s in self.tests)
+        from datetime import date
+        parameters['date'] = date.today().isoformat()
 
-      # Read the input file
-      srcfile = os.path.join(self.basedir, dirname, filename)
-      filekey = os.path.join(self.relsrc, dirname, filename)
-      if not os.path.exists(srcfile):
-        parameters['tbody'] = '<tr><td colspan="5">File could not be found</td></tr>'
-      else:
-        fd = open(srcfile, 'r')
-        try:
-          srclines = fd.readlines()
-        finally:
-          fd.close()
+        # Read the input file
+        srcfile = os.path.join(self.basedir, dirname, filename)
+        filekey = os.path.join(self.relsrc, dirname, filename)
+        if not os.path.exists(srcfile):
+            parameters['tbody'] = (
+                '<tr><td colspan="5">File could not be found</td></tr>')
+            parameters['data'] = ''
+        else:
+            with open(srcfile, 'r') as fd:
+                srclines = fd.readlines()
 
-        flatdata = self.flatdata[filekey]
-        # Precompute branch data for each line.
-        brlinedata = {}
-        brdatakeys = list(flatdata['branches'])
+            flatdata = self.flatdata[filekey]
+            alldata = self._buildFileJson(flatdata)
+            outdata = {'all': alldata}
+            for test in self.tests[1:]:
+                outdata[test] = self._buildFileJson(
+                    self.data.getFileData(filekey, test))
+            parameters['data'] = '''var data=%s;''' % json.dumps(outdata)
+            # Precompute branch data for each line.
+            brlinedata = {}
+            for line in range(len(alldata['lines'])):
+                data = alldata['bcounts'][line]
+                entries = []
+                for branch, tdata in data.items():
+                    tentries = ['<span class="%s" title="%d"> %s </span>' % (
+                        "highcov" if count > 0 else "lowcov", count,
+                        "+" if count > 0 else "-") for count in tdata]
+                    tentries[0] = ('<span data-branchid="%d">[' % branch +
+                        tentries[0])
+                    tentries[-1] += ']</span>'
+                    entries.extend(tentries)
+                # Insert breaks every 8 values to make particularly long strings
+                # not overflow the browser viewport
+                for i in range(7, len(entries) - 1, 8):
+                    entries[i] += '<br>'
+                brlinedata[alldata['lines'][line]] = ''.join(entries)
+
+            lineno = 1
+            outlines = []
+            for line in srclines:
+                covstatus = ''
+                linecount = ''
+                if lineno in flatdata['lines']:
+                    linecount = str(flatdata['lines'][lineno])
+                    iscov = linecount != '0'
+                    covstatus = ' class="highcov"' if iscov else ' class="lowcov"'
+                brcount = brlinedata.get(lineno, '')
+                outlines.append(('  <tr%s><td>%d</td>' +
+                    '<td>%s</td><td>%s</td><td>%s</td></tr>\n'
+                    ) % (covstatus, lineno, brcount, linecount,
+                        cgi.escape(line.rstrip())))
+                lineno += 1
+            parameters['tbody'] = ''.join(outlines)
+
+        outputdir = os.path.join(self.outdir, dirname)
+        if not os.path.exists(outputdir):
+            os.makedirs(outputdir)
+        with open(os.path.join(outputdir, filename + '.html'), 'w') as fd:
+            fd.write(htmltmp.substitute(parameters))
+
+    def _buildFileJson(self, data):
+        if not data['lines']:
+            return {'lines': [], 'lcounts': [], 'bcounts': {}}
+        lines, counts = zip(*data['lines'].items())
+        brdatakeys = list(data['branches'])
         brdatakeys.sort()
+        brlinedata = {}
         for line, branchid in brdatakeys:
-          branches = list(flatdata['branches'][line, branchid].iteritems())
-          branches.sort()
-          # Break up chunks at 8 branch widths so that core interpreter switches
-          # don't require page scrolls.
-          # I would use CSS max-width on columns to control this instead, but a
-          # certain layout engine doesn't take into account max-width constraints.
-          chunks = []
-          for i in range((len(branches) + 7)/8):
-            chunks.append(''.join('<span class="%s" title="%d"> %s </span>' % (
-                "highcov" if count > 0 else "lowcov", count,
-                "+" if count > 0 else "-")
-              for key, count in branches[8 * i:8 * (i + 1)]))
-          outstr = '<span data-branchid="%d">[%s]</span>' % (
-            branchid, '<br>'.join(chunks))
-          brlinedata.setdefault(line, []).append(outstr)
-
-        lineno = 1
-        outlines = []
-        for line in srclines:
-          covstatus = ''
-          linecount = ''
-          if lineno in flatdata['lines']:
-            linecount = str(flatdata['lines'][lineno])
-            iscov = linecount != '0'
-            covstatus = ' class="highcov"' if iscov else ' class="lowcov"'
-          if lineno in brlinedata:
-            brcount = '<br>'.join(brlinedata[lineno])
-          else:
-            brcount = ''
-          outlines.append(('  <tr%s><td>%d</td>' +
-            '<td>%s</td><td>%s</td><td>%s</td></tr>\n'
-            ) % (covstatus, lineno, brcount, linecount,
-                 cgi.escape(line.rstrip())))
-          lineno += 1
-        parameters['tbody'] = ''.join(outlines)
-
-      outputdir = os.path.join(self.outdir, dirname)
-      if not os.path.exists(outputdir):
-        os.makedirs(outputdir)
-      fd = open(os.path.join(outputdir, filename + '.html'), 'w')
-      try:
-        fd.write(htmltmp.substitute(parameters))
-      finally:
-        fd.close()
-
+            branches = data['branches'][line, branchid].items()
+            branches.sort()
+            brlinedata.setdefault(line, {})[branchid] = [b[1] for b in branches]
+        flat = [brlinedata.get(l, {}) for l in lines]
+        return {'lines': lines, 'lcounts': counts, 'bcounts': flat}
 
 if __name__ == '__main__':
   main(sys.argv)

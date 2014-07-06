@@ -139,6 +139,11 @@ class CoverageData:
   def getFlatData(self):
       return self._getFlatData(self.getTests())
 
+  def getFileData(self, file, test):
+      data = {"lines": {}, "funcs": {}, "branches": {}}
+      testdata = self._data[test]
+      return testdata.get(file, data)
+
   def _getFlatData(self, keys):
     data = {}
     for test in keys:

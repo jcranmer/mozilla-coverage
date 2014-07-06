@@ -44,3 +44,50 @@ function onDirectoryLoad() {
     d3.json(depth + "/" + this.value + ".json", displayDirectoryResults);
   });
 }
+
+function convertFileTable(data) {
+  var zip = data.lines.map(function (d, i) {
+    return [formatBranchData(data.bcounts[i]), data.lcounts[i]];
+  });
+  var rows = d3.selectAll("#filetable > tbody > tr")
+    .filter(".highcov, .lowcov")
+    .data(zip);
+  rows.attr("class", function (d, i) { return data.lcounts[i] == 0 ? "lowcov"
+    : "highcov"; });
+  var cells = rows.selectAll("td:nth-child(2), td:nth-child(3)")
+    .data(function (d) { return d; });
+
+  cells.html(function (d) { return d; });
+}
+
+function formatBranchData(bdata) {
+  // Branch data is an array of arrays, each outer array corresponding to a
+  // potential branch, and each array containing the counts of the targets
+  // within that branch (switches get more than 2 targets).
+  var entries = [];
+  for (var branch in bdata) {
+    var str = "[";
+    var tdata = bdata[branch];
+    for (var t = 0; t < tdata.length; t++) {
+      str += '<span class="';
+      str += tdata[t] == 0 ? "lowcov" : "highcov";
+      str += '" title="' + tdata[t] + '"> ';
+      str += tdata[t] == 0 ? "-" : "+";
+      str += " </span>";
+      if (t + 1 == tdata.length)
+        str += "]";
+      entries.push(str);
+      str = "";
+    }
+  }
+  // Insert breaks every 8 entries.
+  for (var i = 7; i < entries.length - 1; i += 8)
+    entries[i] += "<br>";
+  return entries.join("");
+}
+
+function onFileLoad() {
+  d3.select("#testsuite").on("change", function () {
+    convertFileTable(data[this.value]);
+  });
+}

@@ -1,10 +1,12 @@
 <!DOCTYPE html>
 <html><head>
+<meta charset="UTF-8">
 <title>Code coverage</title>
 <link href="${depth}/ccov.css" rel="stylesheet" type="text/css" />
-<link href="../webui/ccov.css" rel="stylesheet" type="text/css" />
+<script src="${depth}/dynamic-results.js"></script>
+<script src="http://d3js.org/d3.v2.js"></script>
 </head>
-<body>
+<body onload="onFileLoad()">
 <h1>Code coverage report for <span id="filepath">${file}</span></h1>
 <hr>
 <div class="info-panel">Test:
@@ -21,5 +23,6 @@
 <tbody>
   ${tbody}
 </tbody>
+<script defer="true">${data}</script>
 </body>
 </html>
