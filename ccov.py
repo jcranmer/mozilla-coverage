@@ -196,17 +196,20 @@ class GcovLoader(object):
         gcovdir = tempfile.mktemp("gcovdir")
         os.mkdir(gcovdir)
         with open('/dev/null', 'w') as hideOutput:
-            subprocess.check_call([self.gcovtool, "-b", "-f"] + gcda_files,
-                cwd=gcovdir, stdout=hideOutput, stderr=hideOutput)
+            subprocess.check_call([self.gcovtool, "-b", "-c", "-a", "-f"] +
+                gcda_files, cwd=gcovdir, stdout=hideOutput, stderr=hideOutput)
         for gcovfile in os.listdir(gcovdir):
             with open(os.path.join(gcovdir, gcovfile)) as fd:
                 self._readGcovFile(fd, directory)
         shutil.rmtree(gcovdir)
 
     def _readGcovFile(self, fd, relpath):
-        lineDataRe = re.compile("\s*([^:]+):\s*([0-9]+):(.*)$")
+        lineDataRe = re.compile(r"\s*([^:]+):\s*([0-9]+):(.*)$")
         functionDataRe = re.compile("function (.*) called ([0-9]+)")
+        branchNoRe = re.compile(r"\s*[^:]+:\s*[0-9]+-block\s+([0-9]+)$")
+        brdRe = re.compile(r"branch\s*([0-9]+) (taken ([0-9]+)|never executed)")
         lineno = 0
+        branchno = 0
         for line in fd:
             line = line.strip()
             match = lineDataRe.match(line)
@@ -240,6 +243,21 @@ class GcovLoader(object):
                 fulltable['funcs'][func] = (lineno + 1, fncount +
                     fulltable['funcs'].get(func, (0, 0))[-1])
                 continue
+            match = branchNoRe.match(line)
+            if match is not None:
+                branchno = int(match.group(1))
+                continue
+            match = brdRe.match(line)
+            if match is not None:
+                brid = int(match.group(1))
+                brcount = match.group(3)
+                if brcount is None:
+                    brcount = 0
+                else:
+                    brcount = int(brcount)
+                key = (lineno, branchno)
+                brdict = fulltable['branches'].setdefault(key, {})
+                brdict[brid] = brdict.get(brid, 0) + brcount
 
 import os, sys
 
