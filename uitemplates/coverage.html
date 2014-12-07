@@ -100,14 +100,14 @@ function loadJsonData(json) {
   // Change sizes
   d3.select("#size-line").on("click", function() {
     display.selectAll("div")
-      .data(treemap.value(function (d) {return d.lines; }))
+      .data(treemap.value(function (d) {return d.lines; }), get_source_file)
       .call(cell);
     d3.select("#size-line").classed("active", true);
     d3.select("#size-func").classed("active", false);
   });
   d3.select("#size-func").on("click", function() {
     display.selectAll("div")
-      .data(treemap.value(function (d) {return d.funcs; }))
+      .data(treemap.value(function (d) {return d.funcs; }), get_source_file)
       .call(cell);
     d3.select("#size-func").classed("active", true);
     d3.select("#size-line").classed("active", false);
@@ -177,7 +177,7 @@ function reroot(new_root) {
   //treemap.sticky(true);
 
   var nodes = display.data([root]).selectAll("div")
-    .data(treemap.nodes, function (d) { return get_source_file(d); })
+    .data(treemap.nodes, get_source_file)
   // Transition the new cells
   nodes.exit().style("background-color", "#fff")
     .transition().duration(1000).remove();
