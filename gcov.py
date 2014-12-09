@@ -1,5 +1,6 @@
 #!/usr/bin/python
 
+import ccov
 import io
 import struct
 import sys
@@ -153,14 +154,10 @@ def make_coverage_json(gcnodata, data={}, basedir=''):
       f = os.path.normpath(os.path.join(basedir, f))
     f = os.path.realpath(f)
     if f not in data:
-      data[f] = [{}, {}, {}]
+      data[f] = ccov.FileCoverageDetails()
     return data[f]
   for fn in gcnodata['funcs']:
     fndata = gcnodata['funcs'][fn]
-    outfnmap = get_file_data(data, fndata['file'])[1]
-    if fndata['name'] not in outfnmap:
-      outfnmap[fndata['name']] = [fndata['line'], 0]
-    fnhc = outfnmap[fndata['name']]
 
     # Count up in/out for each block
     bbdata = fndata['bbs']
@@ -177,14 +174,14 @@ def make_coverage_json(gcnodata, data={}, basedir=''):
       succs = [arc for arc in bb['next'] if not(arc[1] & FAKE_ARC)]
       if len(succs) > 1 and len(bb['lines']) > 0:
         brfile, brline = bb['lines'][-1]
-        branchdata = get_file_data(data, brfile)[2]
-        brdata = branchdata.setdefault((brline, blkno), {})
+        filedata = get_file_data(data, brfile)
         for x in range(len(bb['next'])):
           if bb['next'][x][1] & FAKE_ARC:
             continue
-          brdata[x] = brdata.get(x, 0) + bb['next'][x][2]
+          filedata.add_branch_hit(brline, blkno, x, bb['next'][x][2])
     # Function hit count == blkout for block 0
-    fnhc[1] += blkout[0]
+    get_file_data(data, fndata['file']).add_function_hit(
+        fndata['name'], blkout[0], fndata['line'])
 
     # Convert block counts to line counts
     # XXX: This is an overestimate. Consider a line like if (a || b); this
@@ -194,8 +191,7 @@ def make_coverage_json(gcnodata, data={}, basedir=''):
       bb = fndata['bbs'][blkno]
       blockhit = blkout[blkno]
       for line in bb['lines']:
-        linedata = get_file_data(data, line[0])[0]
-        linedata[line[1]] = linedata.get(line[1], 0) + blockhit
+        get_file_data(data, line[0]).add_line_hit(line[1], blockhit)
   return data
 
 def solve_computed_counts(bbdata):

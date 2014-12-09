@@ -6,14 +6,94 @@ import shutil
 import subprocess
 import tempfile
 
+class FileCoverageDetails(object):
+    '''This class contains detailed information about the file, line, and branch
+    coverage within a single file.'''
+
+    __slots__ = ('_lines', '_funcs', '_branches')
+
+    def __init__(self):
+        self._lines = dict()
+        self._funcs = dict()
+        self._branches = dict()
+
+    def add_line_hit(self, line, hitcount):
+        '''Note that the line has executed hitcount times.'''
+        self._lines[line] = self._lines.get(line, 0) + hitcount
+
+    def lines(self):
+        '''Returns an iterator over (line #, hit count) for this file.'''
+        return self._lines.iteritems()
+
+    def add_function_hit(self, name, hitcount, lineno=None):
+        '''Note that the function has been executed hitcount times. Optionally,
+        if lineno is not None, note the line number of this function.'''
+        if not name in self._funcs:
+            self._funcs[name] = [lineno, 0]
+        fndata = self._funcs[name]
+        if lineno is not None:
+            fndata[0] = lineno
+        fndata[1] += hitcount
+
+    def functions(self):
+        '''Returns an iterator over (function name, line #, hit count) for this
+        file.'''
+        for func, fndata in self._funcs.iteritems():
+            yield (func, fndata[0], fndata[1])
+
+    def add_branch_hit(self, lineno, brno, targetid, count):
+        '''Note that the brno'th branch on the line number going to the targetid
+        basic block has been executed count times.'''
+        brdata = self._branches.setdefault((lineno, brno), {})
+        brdata[targetid] = brdata.get(targetid, 0) + count
+
+    def branches(self):
+        '''Returns an iterator over (line #, branch #, [ids], [counts]) for this
+        file.'''
+        for tup in self._branches.iteritems():
+            items = tup[1].items()
+            items.sort()
+            yield (tup[0][0], tup[0][1], [x[0] for x in items], [x[1] for x in items])
+
+    def write_lcov_output(self, fd):
+        '''Writes the record for this file to the file descriptor in the LCOV
+        info file format.'''
+        # Write out func data
+        fnf, fnh = 0, 0
+        for fname, fline, fcount in self.functions():
+            fd.write("FN:%d,%s\n" % (fline, fname))
+            fd.write("FNDA:%d,%s\n" % (fcount, fname))
+            fnf += 1
+            fnh += fcount != 0
+        fd.write("FNF:%d\n" % fnf)
+        fd.write("FNH:%d\n" % fnh)
+
+        # Write out line data
+        lh, lf = 0, 0
+        for line, hit in self.lines():
+            fd.write("DA:%d,%d\n" % (line, hit))
+            lf += 1
+            lh += hit != 0
+        fd.write("LH:%d\n" % lh)
+        fd.write("LF:%d\n" % lf)
+
+        # Write out branch data
+        brf, brh = 0, 0
+        for line, branch, ids, counts in self.branches():
+            total = sum(counts)
+            for branchno, count in zip(ids, counts):
+                fd.write("BRDA:%d,%d,%d,%s\n" % (line, branch, branchno,
+                    (total == 0 and '-' or str(count))))
+                brf += 1
+                brh += count != 0
+        fd.write("BRH:%d\n" % brh)
+        fd.write("BRF:%d\n" % brf)
+        fd.write("end_of_record\n")
+        pass
+
 class CoverageData:
   # data is a map of [testname -> fileData]
-  # fileData is a map of [file -> perFileData]
-  # perFileData: [
-  #  [line# -> line hit count],
-  #  [func name -> [line number, func hit count]],
-  #  [ (line #, branch #) -> {id -> count} ],
-  # ]
+  # fileData is a map of [file -> FileCoverageDetails]
   _data = {'': {}}
   def addFromLcovFile(self, fd):
     ''' Adds the data from the given file (in lcov format) to the current
@@ -29,48 +109,40 @@ class CoverageData:
       elif instr == 'SF': # SF:<absolute path to the source file>
         if os.path.islink(data):
           data = os.path.realpath(data)
-        CoverageData._addLcovData(fd, fileData.setdefault(data, [{}, {}, {}]))
+        CoverageData._addLcovData(fd,
+            fileData.setdefault(data, FileCoverageDetails()))
       else:
         raise Exception("Unknown line: %s" % line)
     fd.close()
 
   @staticmethod
   def _addLcovData(fd, fileStruct):
-    # Lines and function count live in dicts
-    lines = fileStruct[0]
-    funcs = fileStruct[1]
-    branches = fileStruct[2]
-    for line in fd:
-      line = line.strip()
-      if line == 'end_of_record':
-        return
-      instr, data = line.split(':', 1)
-      if instr == 'DA': # DA:<line number>,<execution count>[,<checksum>]
-        data = data.split(',')
-        lno, hits = int(data[0]), int(data[1])
-        lines[lno] = lines.get(lno, 0) + hits
-      elif instr == 'FNDA': # FNDA:<execution count>,<function name>
-        data = data.split(',')
-        funcs.setdefault(data[1], [0, 0])[1] += int(data[0])
-      elif instr == 'FN': # FN:<line number of function start>,<function name>
-        data = data.split(',')
-        funcs.setdefault(data[1], [0, 0])[0] = int(data[0])
-      elif instr == 'BRDA': # <line>,<block>,<branch>,<count or ->
-        data = [x == '-' and '-' or int(x) for x in data.split(',')]
-        # Reset the branch numbering as necessary
-        brdata = branches.setdefault((data[0],data[1]), {})
-        if data[3] == '-':
-          data[3] = 0
-        count = data[3]
-        if data[2] in brdata:
-          brdata[data[2]] += count
-        else:
-          brdata[data[2]] = count
-      elif instr in ['LH', 'LF', 'FNF', 'FNH']:
-        # Hit/found -> we count these ourselves
-        continue
-      #else:
-      #  raise Exception("Unknown line: %s" % line)
+        # Lines and function count live in dicts
+        for line in fd:
+            line = line.strip()
+            if line == 'end_of_record':
+                return
+            instr, data = line.split(':', 1)
+            if instr == 'DA': # DA:<line number>,<execution count>[,<checksum>]
+                data = data.split(',')
+                lno, hits = int(data[0]), int(data[1])
+                fileStruct.add_line_hit(lno, hits)
+            elif instr == 'FNDA': # FNDA:<execution count>,<function name>
+                data = data.split(',')
+                fileStruct.add_function_hit(data[1], int(data[0]))
+            elif instr == 'FN': # FN:<line number of function>,<function name>
+                data = data.split(',')
+                fileStruct.add_function_hit(data[1], 0, int(data[0]))
+            elif instr == 'BRDA': # <line>,<block>,<branch>,<count or ->
+                data = [x == '-' and '-' or int(x) for x in data.split(',')]
+                if data[3] == '-':
+                  data[3] = 0
+                fileStruct.add_branch_hit(data[0], data[1], data[2], data[3])
+            elif instr in ['LH', 'LF', 'FNF', 'FNH']:
+                # Hit/found -> we count these ourselves
+                continue
+            #else:
+            #    raise Exception("Unknown line: %s" % line)
 
   def writeLcovOutput(self, fd):
     for test in self._data:
@@ -79,43 +151,8 @@ class CoverageData:
         perFileData = fileData[fname]
         fd.write('TN:%s\n' % test)
         fd.write("SF:%s\n" % fname)
-        self._writeRecord(fd, perFileData)
+        perFileData.write_lcov_output(fd)
     fd.close()
-
-  def _writeRecord(self, fd, perFileData):
-    # Write out func data
-    fnf, fnh = 0, 0
-    for func in perFileData[1]:
-      fndata = perFileData[1][func]
-      fd.write("FN:%d,%s\n" % (fndata[0], func))
-      fd.write("FNDA:%d,%s\n" % (fndata[1], func))
-      fnf += 1
-      fnh += fndata[1] != 0
-    fd.write("FNF:%d\n" % fnf)
-    fd.write("FNH:%d\n" % fnh)
-
-    # Write out line data
-    lh, lf = 0, 0
-    for line in perFileData[0]:
-      fd.write("DA:%d,%d\n" % (line, perFileData[0][line]))
-      lf += 1
-      lh += perFileData[0][line] != 0
-    fd.write("LH:%d\n" % lh)
-    fd.write("LF:%d\n" % lf)
-
-    # Write out branch data
-    brf, brh = 0, 0
-    for line, branch in perFileData[2]:
-      counts = perFileData[2][(line, branch)]
-      total = sum(counts.itervalues())
-      for branchno in counts:
-        fd.write("BRDA:%d,%d,%d,%s\n" % (line, branch, branchno,
-          (total == 0 and '-' or str(counts[branchno]))))
-        brf += 1
-        brh += counts[branchno] != 0
-    fd.write("BRH:%d\n" % brh)
-    fd.write("BRF:%d\n" % brf)
-    fd.write("end_of_record\n")
 
   def loadGcdaAndGcno(self, testname, gcdapath, gcnopath):
     import gcov, io
@@ -140,32 +177,28 @@ class CoverageData:
       return self._getFlatData(self.getTests())
 
   def getFileData(self, file, test):
-      data = [{}, {}, {}]
+      data = FileCoverageDetails()
       testdata = self._data[test]
       return testdata.get(file, data)
 
   def _getFlatData(self, keys):
-    data = {}
-    for test in keys:
-      testdata = self._data[test]
-      for file in testdata:
-        fdata = data.setdefault(file, [{}, {}, {}])
-        tfdata = testdata[file]
-        # Merge line data in
-        for line in tfdata[0]:
-          fdata[0][line] = (fdata[0].get(line, 0) +
-            tfdata[0][line])
-        # Merge in function data
-        for func in tfdata[1]:
-          fndata = tfdata[1][func]
-          fdata[1].setdefault(func, [fndata[0], 0])[1] += fndata[1]
-        # Branch data
-        for branch in tfdata[2]:
-          brdata = tfdata[2][branch]
-          flatbrdata = fdata[2].setdefault(branch, {})
-          for brid in brdata:
-            flatbrdata[brid] = flatbrdata.get(brid, 0) + brdata[brid]
-    return data
+        data = {}
+        for test in keys:
+            testdata = self._data[test]
+            for file in testdata:
+                fdata = data.setdefault(file, FileCoverageDetails())
+                tfdata = testdata[file]
+                # Merge line data in
+                for line, lh in tfdata.lines():
+                    fdata.add_line_hit(line, lh)
+                # Merge in function data
+                for func, line, fh in tfdata.functions():
+                    fdata.add_function_hit(func, fh, line)
+                # Branch data
+                for line, branch, ids, counts in tfdata.branches():
+                    for brid, count in zip(ids, counts):
+                        fdata.add_branch_hit(line, branch, brid, count)
+        return data
 
   def getTestData(self, test):
         return self._getFlatData([test])
@@ -223,24 +256,22 @@ class GcovLoader(object):
                     filename = os.path.abspath(os.path.join(relpath, filename))
                     # Set the accumulator tables
                     if not filename in self.table:
-                        fulltable = [{}, {}, {}]
+                        fulltable = FileCoverageDetails()
                         self.table[filename] = fulltable
                     else:
                         fulltable = self.table[filename]
-                    lineTable = fulltable[0]
                 elif lineno >= 1 and count != '-':
                     if count == '#####':
                         count = 0
                     else:
                         count = int(count)
-                    lineTable[lineno] = lineTable.get(lineno, 0) + count
+                    fulltable.add_line_hit(lineno, count)
                 continue
             match = functionDataRe.match(line)
             if match is not None:
                 func = match.group(1)
                 fncount = int(match.group(2))
-                fulltable[1][func] = (lineno + 1, fncount +
-                    fulltable[1].get(func, (0, 0))[-1])
+                fulltable.add_function_hit(func, fncount, lineno + 1)
                 continue
             match = branchNoRe.match(line)
             if match is not None:
@@ -254,9 +285,7 @@ class GcovLoader(object):
                     brcount = 0
                 else:
                     brcount = int(brcount)
-                key = (lineno, branchno)
-                brdict = fulltable[2].setdefault(key, {})
-                brdict[brid] = brdict.get(brid, 0) + brcount
+                fulltable.add_branch_hit(lineno, branchno, brid, brcount)
 
 import os, sys
 

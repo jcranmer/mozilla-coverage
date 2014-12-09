@@ -49,7 +49,7 @@ class UiBuilder(object):
         # generally works, assuming that things like /usr/include/ are removed
         # from the coverage files before hand.
         self.relsrc = ''
-        while len(json_data["files"]) == 1:
+        while len(json_data["files"]) == 1 and len(json_data["files"][0]["files"]):
             json_data = json_data["files"][0]
             if 'name' in json_data:
                 self.relsrc += '/' + json_data['name']
@@ -77,14 +77,17 @@ class UiBuilder(object):
         linehit, linecount = 0, 0
         fnhit, fncount = 0, 0
         brhit, brcount = 0, 0
-        linehit += len([k for k in data[filename][0] if data[filename][0][k] != 0])
-        linecount += len(data[filename][0])
-        fnhit += len([k for k in data[filename][1] if data[filename][1][k][1] != 0])
-        fncount += len(data[filename][1])
-        brdata = data[filename][2]
-        for brinfo in brdata.itervalues():
+        #linehit, linecount = reduce(lambda x, y: (x[0] + 1, x[1] + (y[1] != 0)),
+        #    data[filename].lines(), (0, 0))
+        for lno, lc in data[filename].lines():
+            linehit += lc > 0
+            linecount += 1
+        for fname, _, fc in data[filename].functions():
+            fnhit += fc > 0
+            fncount += 1
+        for _, _, _, brinfo in data[filename].branches():
           brcount += len(brinfo)
-          brhit += len([k for k in brinfo if brinfo[k] != 0])
+          brhit += sum(k != 0 for k in brinfo)
         blob = json_data
         for component in parts:
           blob["lines"] += linecount
@@ -235,6 +238,7 @@ class UiBuilder(object):
                 srclines = fd.readlines()
 
             flatdata = self.flatdata[filekey]
+            del self.flatdata[filekey] # Scavenge memory we don't need anymore.
             alldata = self._buildFileJson(flatdata)
             outdata = {'all': alldata}
             for test in self.tests[1:]:
@@ -262,11 +266,12 @@ class UiBuilder(object):
 
             lineno = 1
             outlines = []
+            linehitdata = dict(flatdata.lines())
             for line in srclines:
                 covstatus = ''
                 linecount = ''
-                if lineno in flatdata[0]:
-                    linecount = str(flatdata[0][lineno])
+                if lineno in linehitdata:
+                    linecount = str(linehitdata[lineno])
                     iscov = linecount != '0'
                     covstatus = ' class="highcov"' if iscov else ' class="lowcov"'
                 brcount = brlinedata.get(lineno, '')
@@ -284,16 +289,12 @@ class UiBuilder(object):
             fd.write(htmltmp.substitute(parameters))
 
     def _buildFileJson(self, data):
-        if not data[0]:
-            return {'lines': [], 'lcounts': [], 'bcounts': {}}
-        lines, counts = zip(*data[0].items())
-        brdatakeys = list(data[2])
-        brdatakeys.sort()
+        lines, counts = zip(*data.lines())
+        brdata = list(data.branches())
+        brdata.sort()
         brlinedata = {}
-        for line, branchid in brdatakeys:
-            branches = data[2][line, branchid].items()
-            branches.sort()
-            brlinedata.setdefault(line, {})[branchid] = [b[1] for b in branches]
+        for line, branchid, ids, counts in brdata:
+            brlinedata.setdefault(line, {})[branchid] = counts
         flat = [brlinedata.get(l, {}) for l in lines]
         return {'lines': lines, 'lcounts': counts, 'bcounts': flat}
 
