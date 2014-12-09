@@ -17,7 +17,13 @@ function color_normal(ratio) {
 function color_skew(ratio) {
   return color_normal(ratio * ratio);
 }
-var color = color_normal;
+var color_low = d3.interpolateLab("#a50026", "#ffffbf");
+var color_high = d3.interpolateLab("#ffffbf", "#006837");
+function color_interlab(ratio) {
+  return ratio < 0.5 ? color_low(ratio * 2) : color_high(ratio * 2 - 1);
+};
+
+var color = color_interlab;
 
 function compute_coverage(prop, d) {
   return d.files.length ? "transparent" : color(d[prop + '-hit'] / d[prop]);
@@ -56,10 +62,19 @@ function onLoad() {
     .style("height", height + "px");
   d3.json("all.json", loadJsonData);
 
-  // Coverage scales help
-  d3.select("svg").append("g")
-    .attr("transform", "translate(5, 5)")
-    .call(d3.svg.axis().scale(d3.scale.linear().domain([0,100]).range([0,200]))
+  // Bind the coverage scale
+  d3.select("#scale").selectAll("rect")
+    .data(new Array(200 - 10).map(function (d, i) { return i; }))
+    .enter().append("rect")
+    .attr("x", function (d, i) { return i + 5; })
+    .attr("y", "0px")
+    .attr("width", "1px")
+    .attr("height", "15px")
+    .attr("fill", function (d, i) { return color(i / 190); });
+
+  d3.select("#scale").append("g")
+    .attr("transform", "translate(0, 2)")
+    .call(d3.svg.axis().scale(d3.scale.linear().domain([0,100]).range([5,195]))
                 .tickPadding(10).ticks(3));
 
   // Select changing test suites
@@ -269,13 +284,7 @@ path.domain { display: none; }
 <p>Viewing coverage for <span id="filepath"></span></p>
 <div id="sidebar">
   <div style="display: inline-block">Scale:
-    <svg width="220px" height="2em" style="float: right">
-       <defs><linearGradient id="coverage_scale">
-         <stop offset="0%" stop-color="#f00" />
-         <stop offset="100%" stop-color="#0f0" />
-       </linearGradient></defs>
-       <rect x="5px" y="0px" width="200px" height="15px"
-             style="fill:url(#coverage_scale)"/>
+    <svg width="220px" height="2em" style="float: right" id="scale">
     </svg></div>
 <div>Color:
 <button class='first active' id='color-line'>Line</button><button
