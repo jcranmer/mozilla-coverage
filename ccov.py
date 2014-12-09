@@ -40,7 +40,6 @@ class CoverageData:
     lines = fileStruct[0]
     funcs = fileStruct[1]
     branches = fileStruct[2]
-    brmap = {}
     for line in fd:
       line = line.strip()
       if line == 'end_of_record':
@@ -228,7 +227,6 @@ class GcovLoader(object):
                         self.table[filename] = fulltable
                     else:
                         fulltable = self.table[filename]
-                    functionTable = fulltable[1]
                     lineTable = fulltable[0]
                 elif lineno >= 1 and count != '-':
                     if count == '#####':
