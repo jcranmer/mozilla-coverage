@@ -9,10 +9,11 @@ import tempfile
 class CoverageData:
   # data is a map of [testname -> fileData]
   # fileData is a map of [file -> perFileData]
-  # perFileData:
-  #  lines: [line# -> line hit count]
-  #  funcs: [func name -> [line number, func hit count]]
-  #  branches: [ (line #, branch #) -> {id -> count} ]
+  # perFileData: [
+  #  [line# -> line hit count],
+  #  [func name -> [line number, func hit count]],
+  #  [ (line #, branch #) -> {id -> count} ],
+  # ]
   _data = {'': {}}
   def addFromLcovFile(self, fd):
     ''' Adds the data from the given file (in lcov format) to the current
@@ -28,7 +29,7 @@ class CoverageData:
       elif instr == 'SF': # SF:<absolute path to the source file>
         if os.path.islink(data):
           data = os.path.realpath(data)
-        CoverageData._addLcovData(fd, fileData.setdefault(data, {}))
+        CoverageData._addLcovData(fd, fileData.setdefault(data, [{}, {}, {}]))
       else:
         raise Exception("Unknown line: %s" % line)
     fd.close()
@@ -36,9 +37,9 @@ class CoverageData:
   @staticmethod
   def _addLcovData(fd, fileStruct):
     # Lines and function count live in dicts
-    lines = fileStruct.setdefault('lines', {})
-    funcs = fileStruct.setdefault('funcs', {})
-    branches = fileStruct.setdefault('branches', {})
+    lines = fileStruct[0]
+    funcs = fileStruct[1]
+    branches = fileStruct[2]
     brmap = {}
     for line in fd:
       line = line.strip()
@@ -85,8 +86,8 @@ class CoverageData:
   def _writeRecord(self, fd, perFileData):
     # Write out func data
     fnf, fnh = 0, 0
-    for func in perFileData['funcs']:
-      fndata = perFileData['funcs'][func]
+    for func in perFileData[1]:
+      fndata = perFileData[1][func]
       fd.write("FN:%d,%s\n" % (fndata[0], func))
       fd.write("FNDA:%d,%s\n" % (fndata[1], func))
       fnf += 1
@@ -96,17 +97,17 @@ class CoverageData:
 
     # Write out line data
     lh, lf = 0, 0
-    for line in perFileData['lines']:
-      fd.write("DA:%d,%d\n" % (line, perFileData['lines'][line]))
+    for line in perFileData[0]:
+      fd.write("DA:%d,%d\n" % (line, perFileData[0][line]))
       lf += 1
-      lh += perFileData['lines'][line] != 0
+      lh += perFileData[0][line] != 0
     fd.write("LH:%d\n" % lh)
     fd.write("LF:%d\n" % lf)
 
     # Write out branch data
     brf, brh = 0, 0
-    for line, branch in perFileData['branches']:
-      counts = perFileData['branches'][(line, branch)]
+    for line, branch in perFileData[2]:
+      counts = perFileData[2][(line, branch)]
       total = sum(counts.itervalues())
       for branchno in counts:
         fd.write("BRDA:%d,%d,%d,%s\n" % (line, branch, branchno,
@@ -140,7 +141,7 @@ class CoverageData:
       return self._getFlatData(self.getTests())
 
   def getFileData(self, file, test):
-      data = {"lines": {}, "funcs": {}, "branches": {}}
+      data = [{}, {}, {}]
       testdata = self._data[test]
       return testdata.get(file, data)
 
@@ -149,20 +150,20 @@ class CoverageData:
     for test in keys:
       testdata = self._data[test]
       for file in testdata:
-        fdata = data.setdefault(file, {"lines": {}, "funcs": {}, "branches": {}})
+        fdata = data.setdefault(file, [{}, {}, {}])
         tfdata = testdata[file]
         # Merge line data in
-        for line in tfdata["lines"]:
-          fdata["lines"][line] = (fdata["lines"].get(line, 0) +
-            tfdata["lines"][line])
+        for line in tfdata[0]:
+          fdata[0][line] = (fdata[0].get(line, 0) +
+            tfdata[0][line])
         # Merge in function data
-        for func in tfdata["funcs"]:
-          fndata = tfdata["funcs"][func]
-          fdata["funcs"].setdefault(func, [fndata[0], 0])[1] += fndata[1]
+        for func in tfdata[1]:
+          fndata = tfdata[1][func]
+          fdata[1].setdefault(func, [fndata[0], 0])[1] += fndata[1]
         # Branch data
-        for branch in tfdata["branches"]:
-          brdata = tfdata["branches"][branch]
-          flatbrdata = fdata["branches"].setdefault(branch, {})
+        for branch in tfdata[2]:
+          brdata = tfdata[2][branch]
+          flatbrdata = fdata[2].setdefault(branch, {})
           for brid in brdata:
             flatbrdata[brid] = flatbrdata.get(brid, 0) + brdata[brid]
     return data
@@ -223,12 +224,12 @@ class GcovLoader(object):
                     filename = os.path.abspath(os.path.join(relpath, filename))
                     # Set the accumulator tables
                     if not filename in self.table:
-                        fulltable = { "lines": {}, "funcs": {}, "branches": {} }
+                        fulltable = [{}, {}, {}]
                         self.table[filename] = fulltable
                     else:
                         fulltable = self.table[filename]
-                    functionTable = fulltable['funcs']
-                    lineTable = fulltable['lines']
+                    functionTable = fulltable[1]
+                    lineTable = fulltable[0]
                 elif lineno >= 1 and count != '-':
                     if count == '#####':
                         count = 0
@@ -240,8 +241,8 @@ class GcovLoader(object):
             if match is not None:
                 func = match.group(1)
                 fncount = int(match.group(2))
-                fulltable['funcs'][func] = (lineno + 1, fncount +
-                    fulltable['funcs'].get(func, (0, 0))[-1])
+                fulltable[1][func] = (lineno + 1, fncount +
+                    fulltable[1].get(func, (0, 0))[-1])
                 continue
             match = branchNoRe.match(line)
             if match is not None:
@@ -256,7 +257,7 @@ class GcovLoader(object):
                 else:
                     brcount = int(brcount)
                 key = (lineno, branchno)
-                brdict = fulltable['branches'].setdefault(key, {})
+                brdict = fulltable[2].setdefault(key, {})
                 brdict[brid] = brdict.get(brid, 0) + brcount
 
 import os, sys
