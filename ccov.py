@@ -1,5 +1,6 @@
 #!/usr/bin/python
 
+import array
 import fnmatch
 import re
 import shutil
@@ -13,17 +14,26 @@ class FileCoverageDetails(object):
     __slots__ = ('_lines', '_funcs', '_branches')
 
     def __init__(self):
-        self._lines = dict()
+        self._lines = array.array('l', [-1] * 1000)
         self._funcs = dict()
         self._branches = dict()
 
     def add_line_hit(self, line, hitcount):
         '''Note that the line has executed hitcount times.'''
-        self._lines[line] = self._lines.get(line, 0) + hitcount
+        if line >= len(self._lines):
+            self._lines.extend([-1] *
+                max(line + 1 - len(self._lines), len(self._lines)))
+        if self._lines[line] == -1:
+            self._lines[line] = hitcount
+        else:
+            self._lines[line] += hitcount
 
     def lines(self):
         '''Returns an iterator over (line #, hit count) for this file.'''
-        return self._lines.iteritems()
+        for i in xrange(len(self._lines)):
+            count = self._lines[i]
+            if count != -1:
+                yield (i, count)
 
     def add_function_hit(self, name, hitcount, lineno=None):
         '''Note that the function has been executed hitcount times. Optionally,
@@ -312,14 +322,9 @@ def main(argv):
   coverage = CoverageData()
   if opts.more_files == None: opts.more_files = []
   for lcovFile in opts.more_files:
-    print >> sys.stderr, "Reading file %s" % lcovFile
-    try:
+      print >> sys.stderr, "Reading file %s" % lcovFile
       fd = open(lcovFile, 'r')
       coverage.addFromLcovFile(fd)
-    except IOError, e:
-      print >> sys.stderr, e
-    except Exception, e:
-      print >> sys.stderr, e
 
   if opts.gcda_dirs == None: opts.gcda_dirs = []
   test = opts.testname or ''
