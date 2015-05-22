@@ -7,6 +7,11 @@ import shutil
 import subprocess
 import tempfile
 
+def format_set_difference(a, b):
+    if a == b:
+        return None
+    return "added %s\nremoved %s" % (str(b - a), str(a - b))
+
 class FileCoverageDetails(object):
     '''This class contains detailed information about the file, line, and branch
     coverage within a single file.'''
@@ -101,10 +106,25 @@ class FileCoverageDetails(object):
         fd.write("end_of_record\n")
         pass
 
+    def check_equivalency(self, otherdata):
+        if self._lines != otherdata._lines:
+            return "Line counts differ"
+        if set(self.functions()) != set(otherdata.functions()):
+            return "Function counts differ"
+        ourbrs = set((x[0], x[1], tuple(x[2]), tuple(x[3]))
+            for x in self.branches())
+        theirbrs = set((x[0], x[1], tuple(x[2]), tuple(x[3]))
+            for x in otherdata.branches())
+        if ourbrs != theirbrs:
+            return "Branch counts differ"
+        pass
+
 class CoverageData:
   # data is a map of [testname -> fileData]
   # fileData is a map of [file -> FileCoverageDetails]
-  _data = {'': {}}
+  def __init__(self):
+        self._data = {'': {}}
+
   def addFromLcovFile(self, fd):
     ''' Adds the data from the given file (in lcov format) to the current
         data tree. '''
@@ -164,15 +184,25 @@ class CoverageData:
         perFileData.write_lcov_output(fd)
     fd.close()
 
-  def loadGcdaAndGcno(self, testname, gcdapath, gcnopath):
-    import gcov, io
-    if not testname in self._data:
-      self._data[testname] = dict()
-    gcnodata = gcov.read_gcno_file(io.open(gcnopath, "rb"))
-    gcov.add_gcda_counts(io.open(gcdapath, "rb"), gcnodata)
-    gcov.make_coverage_json(gcnodata, self._data[testname])
+  def loadGcdaTree(self, testname, gcdaDir):
+        import gcov, io
+        if not testname in self._data:
+            self._data[testname] = dict()
+        for dirpath, dirnames, filenames in os.walk(gcdaDir):
+            print 'Processing %s' % dirpath
+            gcda_files = filter(lambda f: f.endswith('.gcda'), filenames)
+            gcno_files = [f[:-2] + 'no' for f in gcda_files]
+            filepairs = [(da, no) for (da, no) in zip(gcda_files, gcno_files)
+                if no in filenames]
+            for gcda, gcno in filepairs:
+                gcnodata = gcov.read_gcno_file(io.open(
+                    os.path.join(dirpath, gcno), "rb"))
+                gcov.add_gcda_counts(io.open(
+                    os.path.join(dirpath, gcda), "rb"), gcnodata)
+                gcov.make_coverage_json(gcnodata, self._data[testname], dirpath)
 
   def loadViaGcov(self, testname, dirwalk, gcovtool):
+        dirwalk = os.path.abspath(dirwalk)
         iterpaths = []
         for dirpath, dirnames, filenames in os.walk(dirwalk):
             iterpaths.append((dirpath,
@@ -226,6 +256,22 @@ class CoverageData:
       if len(newtestdata) > 0:
         newdata[test] = newtestdata
     self._data = newdata
+
+  def checkEquivalency(self, otherData):
+        if set(self.getTests()) != set(otherData.getTests()):
+            return "Difference in tests"
+        for test in self.getTests():
+            ourfiles = set(self._data[test].keys())
+            theirfiles = set(otherData._data[test].keys())
+            diff = format_set_difference(ourfiles, theirfiles)
+            if diff:
+                return "Difference in files: " + diff
+            for f in ourfiles:
+                result = self.getFileData(f, test).check_equivalency(
+                    otherData.getFileData(f, test))
+                if result:
+                    return result + " on test " + test
+        return None
 
 class GcovLoader(object):
     def __init__(self, basedir, gcovtool='gcov', table={}):
@@ -329,13 +375,7 @@ def main(argv):
   if opts.gcda_dirs == None: opts.gcda_dirs = []
   test = opts.testname or ''
   for gcdaDir in opts.gcda_dirs:
-    for dirpath, dirnames, filenames in os.walk(gcdaDir):
-      for f in filenames:
-        gcnoname = f[:-2] + 'no'
-        path = os.path.join(dirpath, f)
-        if f.endswith('.gcda') and gcnoname in filenames:
-          print >>sys.stderr, "Processing file %s" % path
-          coverage.loadGcdaAndGcno(test, path, os.path.join(dirpath, gcnoname))
+      coverage.loadGcdaTree(test, gcdaDir)
   for gcovdir in (opts.gcov_dirs or []):
       coverage.loadViaGcov(test, gcovdir, opts.gcov_tool)
 
