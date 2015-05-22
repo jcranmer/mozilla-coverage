@@ -112,7 +112,7 @@ class UiBuilder(object):
         blob["branches"] += brcount
         blob["branches-hit"] += brhit
 
-      if self.relsrc is not None:
+      if self.relsrc:
         for part in self.relsrc.split('/'):
           json_data = json_data['files'][0]
       return json_data
@@ -289,12 +289,16 @@ class UiBuilder(object):
             fd.write(htmltmp.substitute(parameters))
 
     def _buildFileJson(self, data):
-        lines, counts = zip(*data.lines())
+        lcs = list(data.lines())
+        if lcs:
+            lines, counts = zip(*lcs)
+        else:
+            lines, counts = [],[]
         brdata = list(data.branches())
         brdata.sort()
         brlinedata = {}
-        for line, branchid, ids, counts in brdata:
-            brlinedata.setdefault(line, {})[branchid] = counts
+        for line, branchid, ids, brcounts in brdata:
+            brlinedata.setdefault(line, {})[branchid] = brcounts
         flat = [brlinedata.get(l, {}) for l in lines]
         return {'lines': lines, 'lcounts': counts, 'bcounts': flat}
 
