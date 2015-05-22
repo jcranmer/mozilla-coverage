@@ -1,7 +1,6 @@
 #!/usr/bin/python
 
 import ccov
-import io
 import struct
 import sys
 
@@ -11,6 +10,10 @@ def tag_number(index):
         GCOV_TAGS[index] = fn
         return fn
     return ret_func
+
+# Arc flags
+COMPUTED_COUNT = 1 << 0
+FAKE_ARC = 1 << 1
 
 def read_struct(fmt, f):
   return struct.unpack(fmt, f.read(struct.calcsize(fmt)))
@@ -55,6 +58,10 @@ class BasicBlockData(object):
         for target, count in zip(self._targets, self._counts):
             yield target[0], target[1], count
 
+    def add_count(self, arc, count):
+        '''Add the number of executions to a specific destination counter.'''
+        self._counts[arc] += count
+
 class FunctionData(object):
     def __init__(self, name, filename, lineno):
         self.name = name
@@ -70,6 +77,16 @@ class FunctionData(object):
     def get_blocks(self):
         return iter(self._bbs)
 
+    def get_gcda_count_indices(self):
+        '''Return an iterator over (basicblock data, arc index) for the counters
+        in this function. Not all arcs in the graph are recorded as actual
+        counters, and this function lets the gcda reader work out how to map
+        counters to the actual target values.'''
+        for bb in self.get_blocks():
+            for i in range(len(bb._targets)):
+                if not (bb._targets[i][1] & COMPUTED_COUNT):
+                    yield bb, i
+
     def __str__(self):
         return '%s at %s:%d' % (self.name, self.location[0], self.location[1])
 
@@ -82,6 +99,10 @@ class GcnoData(object):
     def read_gcno_file(self, filename):
         with open(filename, 'rb') as fd:
             self._read_tagged_file(fd, 0x67636e6f)
+
+    def read_gcda_file(self, filename):
+        with open(filename, 'rb') as fd:
+            self._read_tagged_file(fd, 0x67636461)
         self.notes = self.notesdata()
 
     def _read_int(self, data):
@@ -125,7 +146,12 @@ class GcnoData(object):
         fd.seek(pos, 0)
 
     def _read_record(self, fd, parent_record):
-        tag, length = read_struct('=II', fd)
+        # For GCDA files, there's an extraneous null byte at the end. Ignore
+        # that one.
+        try:
+            tag, length = read_struct('=II', fd)
+        except:
+            return
         data = fd.read(length * 4)
         # Records are hierarchial. A top-level record only uses the top octet,
         # and its children use the next octet, etc. In practice, only two levels
@@ -152,11 +178,17 @@ class GcnoData(object):
         # GCC 4.7 added a second checksum
         if self.version > '407 ':
             _, data = self._read_int(data)
-        name, data = self._read_string(data)
-        source, data = self._read_string(data)
-        line, data = self._read_int(data)
-        fdata = FunctionData(name, source, line)
-        self._functions[ident] = fdata
+        if len(data) == 0:
+            # This is the .gcda version of this function, which is lacking the
+            # name/source/line part. Since we load the notes file first, the
+            # function should already be present.
+            fdata = self._functions[ident]
+        else:
+            name, data = self._read_string(data)
+            source, data = self._read_string(data)
+            line, data = self._read_int(data)
+            fdata = FunctionData(name, source, line)
+            self._functions[ident] = fdata
         return fdata
 
     @tag_number(0x01410000)
@@ -192,6 +224,15 @@ class GcnoData(object):
         bbdata = fndata.get_block(bb)
         bbdata.set_line_table(lines)
 
+    @tag_number(0x01a10000)
+    def _read_counters(self, data, fndata):
+        for bb, arc in fndata.get_gcda_count_indices():
+            countlo, data = self._read_int(data)
+            counthi, data = self._read_int(data)
+            count = countlo | (counthi << 32)
+            bb.add_count(arc, count)
+        assert len(data) == 0
+
     def notesdata(self):
         tldata = {'version': self.version, 'stamp': '', 'funcs': dict()}
         for fid, fdata in self._functions.iteritems():
@@ -224,65 +265,6 @@ class GcnoData(object):
 #      }]
 #   }]
 # }
-
-# Arc flags
-COMPUTED_COUNT = 1 << 0
-FAKE_ARC = 1 << 1
-
-def read_gcda_tag(f, data, curfn):
-  if curfn:
-    fndata = data['funcs'][curfn]
-  # If we h
-  tag = read_struct('=I', f)[0]
-  if tag == 0:
-    return
-  length = read_struct('=I', f)[0]
-  if tag == 0x01000000: # GCOV_FUNCTION
-    ident, checksum = read_struct('=II', f)
-    if data['stamp'] == 'LLVM':
-      # LLVM adds in these extra two fields, but doesn't use them
-      read_struct('=I', f)
-      read_string(f)
-    # GCC 4.7 added a second checksum
-    elif data['version'] > '407 ':
-      read_struct('=I', f)
-    fndata = data['funcs'][ident]
-    return ident
-  elif tag == 0x01a10000: # GCOV_COUNTER_ARCS
-    count_num = 0
-    for bb in fndata['bbs']:
-      for arc in bb['next']:
-        if arc[1] & COMPUTED_COUNT:
-          continue
-        lo, hi = read_struct('=II', f)
-        arc[2] += lo | hi << 32
-        count_num += 1
-    assert length / 2 == count_num
-  elif (tag == 0xa1000000 or # GCOV_OBJECT_SUMMARY
-       tag == 0xa3000000): # GCOV_PROGRAM_SUMMARY
-    # I don't know what's going on here, so I'm ignoring it
-    f.seek(length * 4, 1)
-    #data = read_struct('=%dI' % length, f)
-  else:
-    raise Exception("Unknown tag %x" % tag)
-  return curfn
-
-def add_gcda_counts(f, gcnodata):
-  # Initial prolog data
-  magic, version, stamp = read_struct('=III', f)
-  if magic != 0x67636461: # gcda, as an integer
-    raise Exception("Unknown magic: %x" % magic)
-  # What's the stamp about? I don't know...
-  curfn = 0
-
-  # There has got to be an easier way to tell if we're at eof...
-  pos = f.tell()
-  f.seek(0, 2)
-  eof = f.tell()
-  f.seek(pos)
-  while f.tell() != eof:
-    curfn = read_gcda_tag(f, gcnodata, curfn)
-  f.close()
 
 import os
 

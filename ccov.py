@@ -185,7 +185,7 @@ class CoverageData:
     fd.close()
 
   def loadGcdaTree(self, testname, gcdaDir):
-        import gcov, io
+        import gcov
         if not testname in self._data:
             self._data[testname] = dict()
         for dirpath, dirnames, filenames in os.walk(gcdaDir):
@@ -197,8 +197,7 @@ class CoverageData:
             for gcda, gcno in filepairs:
                 gcnodata = gcov.GcnoData()
                 gcnodata.read_gcno_file(os.path.join(dirpath, gcno))
-                gcov.add_gcda_counts(io.open(
-                    os.path.join(dirpath, gcda), "rb"), gcnodata.notes)
+                gcnodata.read_gcda_file(os.path.join(dirpath, gcda))
                 gcov.make_coverage_json(gcnodata.notes, self._data[testname], dirpath)
 
   def loadViaGcov(self, testname, dirwalk, gcovtool):
