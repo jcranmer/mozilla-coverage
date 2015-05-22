@@ -195,11 +195,11 @@ class CoverageData:
             filepairs = [(da, no) for (da, no) in zip(gcda_files, gcno_files)
                 if no in filenames]
             for gcda, gcno in filepairs:
-                gcnodata = gcov.read_gcno_file(io.open(
-                    os.path.join(dirpath, gcno), "rb"))
+                gcnodata = gcov.GcnoData()
+                gcnodata.read_gcno_file(os.path.join(dirpath, gcno))
                 gcov.add_gcda_counts(io.open(
-                    os.path.join(dirpath, gcda), "rb"), gcnodata)
-                gcov.make_coverage_json(gcnodata, self._data[testname], dirpath)
+                    os.path.join(dirpath, gcda), "rb"), gcnodata.notes)
+                gcov.make_coverage_json(gcnodata.notes, self._data[testname], dirpath)
 
   def loadViaGcov(self, testname, dirwalk, gcovtool):
         dirwalk = os.path.abspath(dirwalk)
