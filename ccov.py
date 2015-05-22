@@ -120,33 +120,33 @@ class FileCoverageDetails(object):
         pass
 
 class CoverageData:
-  # data is a map of [testname -> fileData]
-  # fileData is a map of [file -> FileCoverageDetails]
-  def __init__(self):
+    # data is a map of [testname -> fileData]
+    # fileData is a map of [file -> FileCoverageDetails]
+    def __init__(self):
         self._data = {'': {}}
 
-  def addFromLcovFile(self, fd):
-    ''' Adds the data from the given file (in lcov format) to the current
-        data tree. '''
-    fileData = self._data['']
-    # LCOV info files are line-based
-    for line in fd:
-      line = line.strip()
-      instr, data = line.split(':', 1)
-      if instr == 'TN': # TN:<test name>
-        fileData = self._data.setdefault(data, dict())
-        continue
-      elif instr == 'SF': # SF:<absolute path to the source file>
-        if os.path.islink(data):
-          data = os.path.realpath(data)
-        CoverageData._addLcovData(fd,
-            fileData.setdefault(data, FileCoverageDetails()))
-      else:
-        raise Exception("Unknown line: %s" % line)
-    fd.close()
+    def addFromLcovFile(self, fd):
+        ''' Adds the data from the given file (in lcov format) to the current
+            data tree. '''
+        fileData = self._data['']
+        # LCOV info files are line-based
+        for line in fd:
+            line = line.strip()
+            instr, data = line.split(':', 1)
+            if instr == 'TN': # TN:<test name>
+                fileData = self._data.setdefault(data, dict())
+                continue
+            elif instr == 'SF': # SF:<absolute path to the source file>
+                if os.path.islink(data):
+                    data = os.path.realpath(data)
+                CoverageData._addLcovData(fd,
+                    fileData.setdefault(data, FileCoverageDetails()))
+            else:
+                raise Exception("Unknown line: %s" % line)
+        fd.close()
 
-  @staticmethod
-  def _addLcovData(fd, fileStruct):
+    @staticmethod
+    def _addLcovData(fd, fileStruct):
         # Lines and function count live in dicts
         for line in fd:
             line = line.strip()
@@ -166,7 +166,7 @@ class CoverageData:
             elif instr == 'BRDA': # <line>,<block>,<branch>,<count or ->
                 data = [x == '-' and '-' or int(x) for x in data.split(',')]
                 if data[3] == '-':
-                  data[3] = 0
+                    data[3] = 0
                 fileStruct.add_branch_hit(data[0], data[1], data[2], data[3])
             elif instr in ['LH', 'LF', 'FNF', 'FNH']:
                 # Hit/found -> we count these ourselves
@@ -174,17 +174,17 @@ class CoverageData:
             #else:
             #    raise Exception("Unknown line: %s" % line)
 
-  def writeLcovOutput(self, fd):
-    for test in self._data:
-      fileData = self._data[test]
-      for fname in fileData:
-        perFileData = fileData[fname]
-        fd.write('TN:%s\n' % test)
-        fd.write("SF:%s\n" % fname)
-        perFileData.write_lcov_output(fd)
-    fd.close()
+    def writeLcovOutput(self, fd):
+        for test in self._data:
+            fileData = self._data[test]
+            for fname in fileData:
+                perFileData = fileData[fname]
+                fd.write('TN:%s\n' % test)
+                fd.write("SF:%s\n" % fname)
+                perFileData.write_lcov_output(fd)
+        fd.close()
 
-  def loadGcdaTree(self, testname, gcdaDir):
+    def loadGcdaTree(self, testname, gcdaDir):
         import gcov
         if not testname in self._data:
             self._data[testname] = dict()
@@ -200,7 +200,7 @@ class CoverageData:
                 gcnodata.read_gcda_file(os.path.join(dirpath, gcda))
                 gcov.make_coverage_json(gcnodata.notes, self._data[testname], dirpath)
 
-  def loadViaGcov(self, testname, dirwalk, gcovtool):
+    def loadViaGcov(self, testname, dirwalk, gcovtool):
         dirwalk = os.path.abspath(dirwalk)
         iterpaths = []
         for dirpath, dirnames, filenames in os.walk(dirwalk):
@@ -212,15 +212,15 @@ class CoverageData:
         for directory, gcdas in iterpaths:
             loader.loadDirectory(directory, gcdas)
 
-  def getFlatData(self):
-      return self._getFlatData(self.getTests())
+    def getFlatData(self):
+        return self._getFlatData(self.getTests())
 
-  def getFileData(self, file, test):
-      data = FileCoverageDetails()
-      testdata = self._data[test]
-      return testdata.get(file, data)
+    def getFileData(self, file, test):
+        data = FileCoverageDetails()
+        testdata = self._data[test]
+        return testdata.get(file, data)
 
-  def _getFlatData(self, keys):
+    def _getFlatData(self, keys):
         data = {}
         for test in keys:
             testdata = self._data[test]
@@ -239,24 +239,24 @@ class CoverageData:
                         fdata.add_branch_hit(line, branch, brid, count)
         return data
 
-  def getTestData(self, test):
+    def getTestData(self, test):
         return self._getFlatData([test])
 
-  def getTests(self):
+    def getTests(self):
         return self._data.keys()
 
-  def filterFilesByGlob(self, glob):
-    newdata = {}
-    for test in self._data:
-      testdata = self._data[test]
-      newtestdata = {}
-      for filename in fnmatch.filter(testdata.keys(), glob):
-        newtestdata[filename] = testdata[filename]
-      if len(newtestdata) > 0:
-        newdata[test] = newtestdata
-    self._data = newdata
+    def filterFilesByGlob(self, glob):
+        newdata = {}
+        for test in self._data:
+            testdata = self._data[test]
+            newtestdata = {}
+            for filename in fnmatch.filter(testdata.keys(), glob):
+                newtestdata[filename] = testdata[filename]
+            if len(newtestdata) > 0:
+                newdata[test] = newtestdata
+        self._data = newdata
 
-  def checkEquivalency(self, otherData):
+    def checkEquivalency(self, otherData):
         if set(self.getTests()) != set(otherData.getTests()):
             return "Difference in tests"
         for test in self.getTests():
@@ -345,49 +345,49 @@ class GcovLoader(object):
 import os, sys
 
 def main(argv):
-  from optparse import OptionParser
-  o = OptionParser()
-  o.add_option('-a', '--add', dest="more_files", action="append",
-      help="Add contents of coverage data", metavar="FILE")
-  o.add_option('--experimental-collect', dest="gcda_dirs", action="append",
-      help="Collect data from gcov results", metavar="DIR")
-  o.add_option('-c', '--gcov-collect', dest="gcov_dirs", action="append",
-      help="Collect data from gcov results", metavar="DIR")
-  o.add_option('--gcov-tool', dest="gcov_tool", default="gcov",
-      help="Version of gcov to use to extract data")
-  o.add_option('-e', '--extract', dest="extract_glob",
-      help="Extract only data for files matching PATTERN", metavar="PATTERN")
-  o.add_option('-o', '--output', dest="outfile",
-      help="File to output data to", metavar="FILE")
-  o.add_option('-t', '--test-name', dest="testname",
-      help="Use the NAME for the name of the test", metavar="NAME")
-  (opts, args) = o.parse_args(argv)
+    from optparse import OptionParser
+    o = OptionParser()
+    o.add_option('-a', '--add', dest="more_files", action="append",
+        help="Add contents of coverage data", metavar="FILE")
+    o.add_option('--experimental-collect', dest="gcda_dirs", action="append",
+        help="Collect data from gcov results", metavar="DIR")
+    o.add_option('-c', '--gcov-collect', dest="gcov_dirs", action="append",
+        help="Collect data from gcov results", metavar="DIR")
+    o.add_option('--gcov-tool', dest="gcov_tool", default="gcov",
+        help="Version of gcov to use to extract data")
+    o.add_option('-e', '--extract', dest="extract_glob",
+        help="Extract only data for files matching PATTERN", metavar="PATTERN")
+    o.add_option('-o', '--output', dest="outfile",
+        help="File to output data to", metavar="FILE")
+    o.add_option('-t', '--test-name', dest="testname",
+        help="Use the NAME for the name of the test", metavar="NAME")
+    (opts, args) = o.parse_args(argv)
 
-  # Load coverage data
-  coverage = CoverageData()
-  if opts.more_files == None: opts.more_files = []
-  for lcovFile in opts.more_files:
-      print >> sys.stderr, "Reading file %s" % lcovFile
-      fd = open(lcovFile, 'r')
-      coverage.addFromLcovFile(fd)
+    # Load coverage data
+    coverage = CoverageData()
+    if opts.more_files == None: opts.more_files = []
+    for lcovFile in opts.more_files:
+        print >> sys.stderr, "Reading file %s" % lcovFile
+        fd = open(lcovFile, 'r')
+        coverage.addFromLcovFile(fd)
 
-  if opts.gcda_dirs == None: opts.gcda_dirs = []
-  test = opts.testname or ''
-  for gcdaDir in opts.gcda_dirs:
-      coverage.loadGcdaTree(test, gcdaDir)
-  for gcovdir in (opts.gcov_dirs or []):
-      coverage.loadViaGcov(test, gcovdir, opts.gcov_tool)
+    if opts.gcda_dirs == None: opts.gcda_dirs = []
+    test = opts.testname or ''
+    for gcdaDir in opts.gcda_dirs:
+        coverage.loadGcdaTree(test, gcdaDir)
+    for gcovdir in (opts.gcov_dirs or []):
+        coverage.loadViaGcov(test, gcovdir, opts.gcov_tool)
 
-  if opts.extract_glob is not None:
-    coverage.filterFilesByGlob(opts.extract_glob)
-  # Store it to output
-  if opts.outfile != None:
-    print >> sys.stderr, "Writing to file %s" % opts.outfile
-    outfd = open(opts.outfile, 'w')
-  else:
-    outfd = sys.stdout
-  coverage.writeLcovOutput(outfd)
-  outfd.close()
+    if opts.extract_glob is not None:
+        coverage.filterFilesByGlob(opts.extract_glob)
+    # Store it to output
+    if opts.outfile != None:
+        print >> sys.stderr, "Writing to file %s" % opts.outfile
+        outfd = open(opts.outfile, 'w')
+    else:
+        outfd = sys.stdout
+    coverage.writeLcovOutput(outfd)
+    outfd.close()
 
 if __name__ == '__main__':
-  main(sys.argv[1:])
+    main(sys.argv[1:])
