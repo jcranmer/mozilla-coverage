@@ -14,13 +14,13 @@ def tag_number(index):
 # Arc flags
 COMPUTED_COUNT = 1 << 0
 FAKE_ARC = 1 << 1
+FALLTHROUGH = 1 << 2
+# Not-gcov arc flags
+UNCONDITIONAL = 1 << 32
+CALL_NON_RETURN = 1 << 33
 
 def read_struct(fmt, f):
   return struct.unpack(fmt, f.read(struct.calcsize(fmt)))
-
-def read_string(f):
-  fmt = '=%ds' % (read_struct('=I', f)[0] * 4)
-  return read_struct(fmt, f)[0].strip('\x00')
 
 class BasicBlockData(object):
     def __init__(self):
@@ -95,6 +95,14 @@ class GcnoData(object):
         self.version = None
         self.stamp = None
         self._functions = dict()
+
+    def add_to_coverage(self, covdata, testname, basepath):
+        for function in self._functions.itervalues():
+            rich_bb_graph = build_solver_graph(function)
+            solve_arc_counts(rich_bb_graph)
+            line_map = build_line_map(rich_bb_graph)
+            add_coverage_data(line_map, covdata, testname, basepath)
+        make_coverage_json(self.notes, covdata, testname, basepath)
 
     def read_gcno_file(self, filename):
         with open(filename, 'rb') as fd:
@@ -252,6 +260,184 @@ class GcnoData(object):
                 tlfdata['bbs'].append(bbdata)
         return tldata
 
+class SolverBasicBlock(object):
+    def __init__(self, blockno, bbdata):
+        self.blockno = blockno
+        self.bbdata = bbdata
+        self.in_arcs = []
+        self.out_arcs = []
+        self.count = -1
+        self.is_call_return = False
+
+    def get_count(self):
+        '''Return the execution count of this block. If it is not yet known, the
+        value -1 is returned instead.'''
+        if self.count >= 0:
+            return self.count
+        if self.in_arcs:
+            count = sum(arc.count for arc in self.in_arcs)
+            if count == count:
+                self.count = count
+                return count
+        if self.out_arcs:
+            count = sum(arc.count for arc in self.out_arcs)
+            if count == count:
+                self.count = count
+                return count
+        return -1
+
+    def __repr__(self):
+        return "BasicBlock[%d]" % self.blockno
+
+class Arc(object):
+    def __init__(self, source, target, flags, count):
+        self.source = source
+        self.target = target
+        self.flags = flags
+        self.count = float('NaN') if self.is_computed else count
+
+    @property
+    def is_fake(self):
+        return bool(self.flags & FAKE_ARC)
+
+    @property
+    def is_computed(self):
+        return bool(self.flags & COMPUTED_COUNT)
+
+    @property
+    def fall_through(self):
+        return bool(self.flags & FALLTHROUGH)
+
+    @property
+    def is_unconditional(self):
+        return bool(self.flags & UNCONDITIONAL)
+
+    @property
+    def is_call_non_return(self):
+        return bool(self.flags & CALL_NON_RETURN)
+
+    def solve_count(self):
+        assert self.count != self.count
+        if self.source.count != -1:
+            count = self.source.count - sum(
+                arc.count for arc in self.source.out_arcs if arc != self)
+            if count == count:
+                self.count = count
+                assert sum(arc.count for arc in self.source.out_arcs) == self.source.count
+                return self.target
+        if self.target.count != -1:
+            count = self.target.count - sum(
+                arc.count for arc in self.target.in_arcs if arc != self)
+            if count == count:
+                self.count = count
+                assert sum(arc.count for arc in self.target.in_arcs) == self.target.count
+                return self.source
+        return False
+
+    def __repr__(self):
+        return "Arc(%d->%d:%s)" % (self.source.blockno,
+                self.target.blockno,
+                str(self.count))
+
+def build_solver_graph(fndata):
+    # Build the rich nodes
+    newbbs = [SolverBasicBlock(i, fndata.get_block(i)) for i in
+        range(len(fndata._bbs))]
+    # Add the targets to each of those nodes as arcs
+    for bb in newbbs:
+        num_fake = 0
+        for target, flags, count in bb.bbdata.get_targets():
+            arc = Arc(bb, newbbs[target], flags, count)
+            bb.out_arcs.append(arc)
+            newbbs[target].in_arcs.append(arc)
+            num_fake += arc.is_fake
+            if arc.is_fake and bb.blockno != 0:
+                arc.flags |= CALL_NON_RETURN
+
+        # This helps sort out which blocks to omit when using branchdata output.
+        if len(bb.out_arcs) - num_fake == 1:
+            for arc in filter(lambda a: not a.is_fake, bb.out_arcs):
+                arc.flags |= UNCONDITIONAL
+                if num_fake > 0 and bb.blockno != 0:
+                    if arc.fall_through and len(arc.target.in_arcs) == 1:
+                        arc.target.is_call_return = True
+
+        # Sort the arcs by their target nodes
+        bb.out_arcs.sort(lambda a, b: cmp(a.target.blockno, b.target.blockno))
+    return newbbs
+
+def solve_arc_counts(nodes):
+    '''Update the arc counts such that each arc without a runtime counter gets
+    its correct count value. This also adds count values to each block.'''
+
+    # This is the first pass: compute a list of unsolved blocks and arcs.
+    unsolved = set(block for block in nodes if block.get_count() == -1)
+    unsolved_arcs = set()
+    for block in nodes:
+        unsolved_arcs.update(filter(lambda x: x.count != x.count,
+            block.out_arcs))
+
+    # Now, iterate by propagating first the block counts to unknown arcs and
+    # then the arc counts to unknown blocks.
+    while len(unsolved) > 0:
+        did_change = False
+        maybe_solved_blocks = set()
+        solved_arcs = set()
+        for arc in unsolved_arcs:
+            maybe_solved = arc.solve_count()
+            if maybe_solved:
+                maybe_solved_blocks.add(maybe_solved)
+                solved_arcs.add(arc)
+                did_change = True
+        unsolved_arcs -= solved_arcs
+
+        for block in maybe_solved_blocks.intersection(unsolved):
+            if block.get_count() != -1:
+                unsolved.remove(block)
+                did_change = True
+
+        # If the graph didn't change, something is horribly wrong
+        if not did_change:
+            display_bb_graph(nodes)
+            assert did_change
+
+def build_line_map(blocks):
+    filename, line = '', 0
+    block_map = dict()
+    # The first two blocks are the entry and exit blocks, which should be
+    # ignored.
+    for bb in blocks[2:]:
+        for filename, line in bb.bbdata.get_lines():
+            pass
+        else:
+            pass
+
+        block_map.setdefault((filename, line), []).append(bb)
+    return block_map
+
+def add_coverage_data(block_map, covdata, testname, basedir):
+    def get_file_data(f):
+        if not os.path.isabs(f):
+            f = os.path.normpath(os.path.join(basedir, f))
+        f = os.path.realpath(f)
+        return covdata.get_or_add_file(f, testname)
+
+    for location, blocks in block_map.iteritems():
+        fdata = get_file_data(location[0])
+        i, j = 0, 0
+
+        # Dump the branch data for all entries on this line.
+        for bb in blocks:
+            if bb.is_call_return:
+                continue
+            if len(bb.out_arcs) > 1:
+                for arc in bb.out_arcs:
+                    if arc.is_call_non_return or arc.is_unconditional:
+                        continue
+                    fdata.add_branch_hit(location[1], i, j, arc.count)
+                    j += 1
+            i += 1
+
 # How to understand our accumulated gcno data:
 # { 'version': the version stamp from the .gcno as a 4-char string,
 #   'funcs': [ uniqueID -> {
@@ -268,14 +454,12 @@ class GcnoData(object):
 
 import os
 
-def make_coverage_json(gcnodata, data={}, basedir=''):
-  def get_file_data(data, f):
-    if f[0] == '.':
-      f = os.path.normpath(os.path.join(basedir, f))
+def make_coverage_json(gcnodata, covdata, testname, basedir=''):
+  def get_file_data(f):
+    if not os.path.isabs(f):
+        f = os.path.normpath(os.path.join(basedir, f))
     f = os.path.realpath(f)
-    if f not in data:
-      data[f] = ccov.FileCoverageDetails()
-    return data[f]
+    return covdata.get_or_add_file(f, testname)
   for fn in gcnodata['funcs']:
     fndata = gcnodata['funcs'][fn]
 
@@ -294,13 +478,8 @@ def make_coverage_json(gcnodata, data={}, basedir=''):
       succs = [arc for arc in bb['next'] if not(arc[1] & FAKE_ARC)]
       if len(succs) > 1 and len(bb['lines']) > 0:
         brfile, brline = bb['lines'][-1]
-        filedata = get_file_data(data, brfile)
-        for x in range(len(bb['next'])):
-          if bb['next'][x][1] & FAKE_ARC:
-            continue
-          filedata.add_branch_hit(brline, blkno, x, bb['next'][x][2])
     # Function hit count == blkout for block 0
-    get_file_data(data, fndata['file']).add_function_hit(
+    get_file_data(fndata['file']).add_function_hit(
         fndata['name'], blkout[0], fndata['line'])
 
     # Convert block counts to line counts
@@ -311,8 +490,7 @@ def make_coverage_json(gcnodata, data={}, basedir=''):
       bb = fndata['bbs'][blkno]
       blockhit = blkout[blkno]
       for line in bb['lines']:
-        get_file_data(data, line[0]).add_line_hit(line[1], blockhit)
-  return data
+        get_file_data(line[0]).add_line_hit(line[1], blockhit)
 
 def solve_computed_counts(bbdata):
   # Phase 1: Add in previous links to the bbdata graph.
@@ -377,19 +555,19 @@ def solve_computed_counts(bbdata):
     unsolved = notsolved
 
 # Helper for displaying what these graphs look like
-def display_bb_graph(bbdata):
-  dotname = os.tmpnam()
-  dotf = open(dotname, 'w')
-  dotf.write('digraph G {\n')
-  for blkno in range(len(bbdata)):
-    dotf.write('  %d [label="%d %s"];\n' % (blkno, blkno,
-      ','.join(pos[0] + ':' + str(pos[1]) for pos in bbdata[blkno]['lines'])))
-    for arc in bbdata[blkno]['next']:
-      dotf.write('  %d -> %d [label="%x/%d"];\n' % (
-        blkno, arc[0], arc[1], arc[2]))
-  dotf.write('}')
-  dotf.close()
-  os.system('dot -Tpng -o %s.png %s' % (dotname, dotname))
-  os.system('display %s.png' % dotname)
-  os.unlink(dotname)
-  os.unlink(dotname + '.png')
+def display_bb_graph(nodes):
+    import subprocess
+    pipe = subprocess.Popen(['dot', '-Tpng'], stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE)
+    display = subprocess.Popen(['display'], stdin=pipe.stdout)
+    dotf = pipe.stdin
+    dotf.write('digraph G {\n')
+    for bb in nodes:
+        blkno = bb.blockno
+        dotf.write('  %d [label="%d"];\n' % (blkno, blkno))
+        for arc in bb.out_arcs:
+          dotf.write('  %d -> %d [label="%x/%s"];\n' % (
+            arc.source.blockno, arc.target.blockno, arc.flags, str(arc.count)))
+    dotf.write('}')
+    dotf.close()
+    display.wait()

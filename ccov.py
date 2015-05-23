@@ -107,8 +107,9 @@ class FileCoverageDetails(object):
         pass
 
     def check_equivalency(self, otherdata):
-        if self._lines != otherdata._lines:
-            return "Line counts differ"
+        #if self._lines != otherdata._lines:
+        #    return "Difference in line counts: %s" % format_set_difference(
+        #        set(self.lines()), set(otherdata.lines()))
         if set(self.functions()) != set(otherdata.functions()):
             return "Function counts differ"
         ourbrs = set((x[0], x[1], tuple(x[2]), tuple(x[3]))
@@ -116,7 +117,8 @@ class FileCoverageDetails(object):
         theirbrs = set((x[0], x[1], tuple(x[2]), tuple(x[3]))
             for x in otherdata.branches())
         if ourbrs != theirbrs:
-            return "Branch counts differ"
+            return "Difference in branch counts: %s" % format_set_difference(
+                ourbrs, theirbrs)
         pass
 
 class CoverageData:
@@ -198,7 +200,7 @@ class CoverageData:
                 gcnodata = gcov.GcnoData()
                 gcnodata.read_gcno_file(os.path.join(dirpath, gcno))
                 gcnodata.read_gcda_file(os.path.join(dirpath, gcda))
-                gcov.make_coverage_json(gcnodata.notes, self._data[testname], dirpath)
+                gcnodata.add_to_coverage(self, testname, dirpath)
 
     def loadViaGcov(self, testname, dirwalk, gcovtool):
         dirwalk = os.path.abspath(dirwalk)
@@ -219,6 +221,10 @@ class CoverageData:
         data = FileCoverageDetails()
         testdata = self._data[test]
         return testdata.get(file, data)
+
+    def get_or_add_file(self, file, test):
+        return self._data.setdefault(test, dict()).setdefault(file,
+            FileCoverageDetails())
 
     def _getFlatData(self, keys):
         data = {}
@@ -269,7 +275,7 @@ class CoverageData:
                 result = self.getFileData(f, test).check_equivalency(
                     otherData.getFileData(f, test))
                 if result:
-                    return result + " on test " + test
+                    return "%s for %s on test %s" % (result, f, test)
         return None
 
 class GcovLoader(object):
