@@ -1,6 +1,6 @@
 #!/usr/bin/python
 
-import ccov
+import os
 import struct
 import sys
 
@@ -97,12 +97,19 @@ class GcnoData(object):
         self._functions = dict()
 
     def add_to_coverage(self, covdata, testname, basepath):
+        def get_file_data(f):
+            if not os.path.isabs(f):
+                f = os.path.normpath(os.path.join(basepath, f))
+            f = os.path.realpath(f)
+            return covdata.get_or_add_file(f, testname)
+
         for function in self._functions.itervalues():
             rich_bb_graph = build_solver_graph(function)
             solve_arc_counts(rich_bb_graph)
             line_map = build_line_map(rich_bb_graph)
-            add_coverage_data(line_map, covdata, testname, basepath)
-        make_coverage_json(self.notes, covdata, testname, basepath)
+            add_coverage_data(line_map, get_file_data)
+            get_file_data(function.location[0]).add_function_hit(
+                function.name, rich_bb_graph[0].count, function.location[1])
 
     def read_gcno_file(self, filename):
         with open(filename, 'rb') as fd:
@@ -404,24 +411,22 @@ def solve_arc_counts(nodes):
 def build_line_map(blocks):
     filename, line = '', 0
     block_map = dict()
+    line_counts = dict()
     # The first two blocks are the entry and exit blocks, which should be
     # ignored.
     for bb in blocks[2:]:
         for filename, line in bb.bbdata.get_lines():
+            key = filename, line
+            line_counts[key] = line_counts.get(key, 0) + bb.count
             pass
         else:
             pass
 
         block_map.setdefault((filename, line), []).append(bb)
-    return block_map
+    return block_map, line_counts
 
-def add_coverage_data(block_map, covdata, testname, basedir):
-    def get_file_data(f):
-        if not os.path.isabs(f):
-            f = os.path.normpath(os.path.join(basedir, f))
-        f = os.path.realpath(f)
-        return covdata.get_or_add_file(f, testname)
-
+def add_coverage_data(line_map, get_file_data):
+    block_map, line_counts = line_map
     for location, blocks in block_map.iteritems():
         fdata = get_file_data(location[0])
         i, j = 0, 0
@@ -438,121 +443,13 @@ def add_coverage_data(block_map, covdata, testname, basedir):
                     j += 1
             i += 1
 
-# How to understand our accumulated gcno data:
-# { 'version': the version stamp from the .gcno as a 4-char string,
-#   'funcs': [ uniqueID -> {
-#      'file': source path
-#      'line': source line
-#      'name': function name
-#      'bbs': [list of {
-#        'flags': flag data from gcov
-#        'next': [ (dest block #idx, flags, count) ],
-#        'lines': [ list of line nos in block ]
-#      }]
-#   }]
-# }
-
-import os
-
-def make_coverage_json(gcnodata, covdata, testname, basedir=''):
-  def get_file_data(f):
-    if not os.path.isabs(f):
-        f = os.path.normpath(os.path.join(basedir, f))
-    f = os.path.realpath(f)
-    return covdata.get_or_add_file(f, testname)
-  for fn in gcnodata['funcs']:
-    fndata = gcnodata['funcs'][fn]
-
-    # Count up in/out for each block
-    bbdata = fndata['bbs']
-    solve_computed_counts(bbdata)
-    blkin = [0] * len(bbdata)
-    blkout = [0] * len(bbdata)
-    for blkno in range(len(bbdata)):
-      bb = bbdata[blkno]
-      for arc in bb['next']:
-        blkout[blkno] += arc[2]
-        blkin[arc[0]] += arc[2]
-      # Branch data: for every bb that has two or more branch points, compute
-      # each arc as a separate branch-data node
-      succs = [arc for arc in bb['next'] if not(arc[1] & FAKE_ARC)]
-      if len(succs) > 1 and len(bb['lines']) > 0:
-        brfile, brline = bb['lines'][-1]
-    # Function hit count == blkout for block 0
-    get_file_data(fndata['file']).add_function_hit(
-        fndata['name'], blkout[0], fndata['line'])
-
-    # Convert block counts to line counts
-    # XXX: This is an overestimate. Consider a line like if (a || b); this
-    # produces two distinct basic blocks on the same line, and we'd double-count
-    # the execution of b.
-    for blkno in range(len(fndata['bbs'])):
-      bb = fndata['bbs'][blkno]
-      blockhit = blkout[blkno]
-      for line in bb['lines']:
-        get_file_data(line[0]).add_line_hit(line[1], blockhit)
-
-def solve_computed_counts(bbdata):
-  # Phase 1: Add in previous links to the bbdata graph.
-  for bb in bbdata:
-    bb['prev'] = []
-  unsolved = set()
-  lineinfo = None
-  for blkno in range(len(bbdata)):
-    bb = bbdata[blkno]
-    for i in range(len(bb['next'])):
-      arc = bb['next'][i]
-      bbdata[arc[0]]['prev'].append(arc)
-      if arc[1] & COMPUTED_COUNT:
-        unsolved.add(blkno)
-        unsolved.add(arc[0])
-    # Apparently we need to fix up gcov's line information? this blows...
-    if len(bb['lines']) > 0:
-      lineinfo = bb['lines'][-1]
-    elif lineinfo is not None:
-      bb['lines'] = [lineinfo]
-
-  # Phase 2: Go through the entire graph and try to solve unsolved nodes
-  while len(unsolved) > 0:
-    notsolved = set()
-    for blkno in unsolved:
-      node = bbdata[blkno]
-      # We can't use the first or last nodes to solve the graph, since there's
-      # only one edge
-      if len(node['prev']) == 0 or len(node['next']) == 0:
-        continue
-
-      # Find the imbalance and number of edges to solve for
-      imbalance = 0
-      num_unsolved = 0
-      for arc in node['prev']:
-        imbalance += arc[2]
-        num_unsolved += (arc[1] & COMPUTED_COUNT != 0)
-      pre_unsolved = num_unsolved
-      for arc in node['next']:
-        imbalance -= arc[2]
-        num_unsolved += (arc[1] & COMPUTED_COUNT != 0)
-
-      # If we have only one unsolved edge, we can solve the balance at this node
-      if num_unsolved == 1:
-        if pre_unsolved == num_unsolved:
-          for arc in node['prev']:
-            if arc[1] & COMPUTED_COUNT:
-              arc[2] = -imbalance
-              arc[1] &= ~COMPUTED_COUNT
-        else:
-          for arc in node['next']:
-            if arc[1] & COMPUTED_COUNT:
-              arc[2] = imbalance
-              arc[1] &= ~COMPUTED_COUNT
-      else:
-        notsolved.add(blkno)
-
-    # Are we done with the loop?
-    if len(unsolved) == len(notsolved):
-      display_bb_graph(bbdata)
-      raise Exception("Infinite loop!")
-    unsolved = notsolved
+    # Work out the line counts to add
+    files = set()
+    for location, count in line_counts.iteritems():
+        files.add(location[0])
+        fdata = get_file_data(location[0])
+        fdata.add_line_hit(location[1], count)
+    return files
 
 # Helper for displaying what these graphs look like
 def display_bb_graph(nodes):

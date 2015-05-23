@@ -107,10 +107,12 @@ class FileCoverageDetails(object):
         pass
 
     def check_equivalency(self, otherdata):
-        #if self._lines != otherdata._lines:
-        #    return "Difference in line counts: %s" % format_set_difference(
-        #        set(self.lines()), set(otherdata.lines()))
+        if self._lines != otherdata._lines:
+            return "Difference in line counts: %s" % format_set_difference(
+                set(self.lines()), set(otherdata.lines()))
         if set(self.functions()) != set(otherdata.functions()):
+            return "Difference in function counts: %s" % format_set_difference(
+                set(self.functions()), set(otherdata.functions()))
             return "Function counts differ"
         ourbrs = set((x[0], x[1], tuple(x[2]), tuple(x[3]))
             for x in self.branches())
@@ -119,7 +121,6 @@ class FileCoverageDetails(object):
         if ourbrs != theirbrs:
             return "Difference in branch counts: %s" % format_set_difference(
                 ourbrs, theirbrs)
-        pass
 
 class CoverageData:
     # data is a map of [testname -> fileData]
@@ -269,8 +270,8 @@ class CoverageData:
             ourfiles = set(self._data[test].keys())
             theirfiles = set(otherData._data[test].keys())
             diff = format_set_difference(ourfiles, theirfiles)
-            if diff:
-                return "Difference in files: " + diff
+            #if diff:
+            #    return "Difference in files: " + diff
             for f in ourfiles:
                 result = self.getFileData(f, test).check_equivalency(
                     otherData.getFileData(f, test))
