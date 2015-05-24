@@ -3,8 +3,7 @@
 <meta charset="UTF-8"/>
 <title>Code coverage graphical overview</title>
 <script src="d3.v3.min.js" charset="UTF-8"></script>
-<script type="application/javascript" src="jquery-1.6.2.min.js"></script>
-<script type="text/javascript" src="jquery.tipsy.js"></script>
+<script src="d3-tip.js" charset="UTF-8"></script>
 <script type="application/javascript">
 // Default size of the treemap
 var width = 1280, height = 720;
@@ -203,6 +202,7 @@ function reroot(new_root) {
     .call(cell).style("opacity", 0)
     .style("background-color", cur_color)
     .on("click", function (d) {
+      tip.hide();
       // Ctrl-Click -> up a level
       if (d3.event.ctrlKey) {
         d = root.parent;
@@ -214,12 +214,16 @@ function reroot(new_root) {
     }).transition().delay(2000).style("opacity", 1);
   nodes.order();
 
-  // Seems that tipsy likes to keep things alive
-  d3.selectAll(".tipsy").remove();
-
   // Add details-on-demand tooltips
-  $$(".cell").tipsy({ gravity: 's', html: true, title: function() {
-    var d = this.__data__;
+  nodes.call(tip);
+  nodes.on("mouseover", tip.show)
+    .on("mouseout", tip.hide);
+}
+
+var tip = d3.tip()
+  .attr("class", "tooltip")
+  .offset([-10, 0])
+  .html(function (d) {
     var str = "File: " + get_source_file(d);
     if (d['lines'] > 0)
       str += "<br/>Line coverage: " + d['lines-hit'] + "/" + d.lines +
@@ -231,11 +235,14 @@ function reroot(new_root) {
       str += "<br/>Branch coverage: " + d['branches-hit'] + "/" + d.branches +
              " (" + d3.format(".3p")(d['branches-hit'] / d.branches) + ")";
     return str;
-  }});
-}
+  }).direction(function (d) {
+    var rect = this.getBoundingClientRect();
+    if (rect.top < 100 || rect.left < 100)
+      return 'e';
+    return 'n';
+  });
 
 </script>
-<link href="tipsy.css" rel="stylesheet" type="text/css" />
 <link href="button.css" rel="stylesheet" type="text/css" />
 <style type="text/css">
 .cell {
@@ -278,6 +285,16 @@ svg text {
   font: 11px sans-serif;
 }
 path.domain { display: none; }
+
+.tooltip {
+  position: absolute;
+  font-size: 12px;
+  z-index: 10000;
+  border-radius: 3px;
+  background-color: black;
+  color: white;
+  padding: 10px 13px;
+}
 </style>
 </head>
 <body onload="onLoad()">
@@ -311,7 +328,7 @@ rectangle to see details about how many lines, functions, and branches are
 covered in that file.
 </p>
 </div>
-<div class='gallery' id='chart'>
+<div id="chart">
 <div id="coverage_treemap">Loading data...</div>
 </div>
 </body>
