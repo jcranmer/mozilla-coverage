@@ -107,7 +107,7 @@ class FileCoverageDetails(object):
         pass
 
     def check_equivalency(self, otherdata):
-        if self._lines != otherdata._lines:
+        if set(self.lines()) != set(otherdata.lines()):
             return "Difference in line counts: %s" % format_set_difference(
                 set(self.lines()), set(otherdata.lines()))
         if set(self.functions()) != set(otherdata.functions()):
@@ -191,6 +191,15 @@ class CoverageData:
         import gcov
         if not testname in self._data:
             self._data[testname] = dict()
+        if os.path.isfile(gcdaDir):
+            dirpath = os.path.dirname(gcdaDir)
+            gcda = os.path.basename(gcdaDir)
+            gcno = gcda[:-2] + 'no'
+            gcnodata = gcov.GcnoData()
+            gcnodata.read_gcno_file(os.path.join(dirpath, gcno))
+            gcnodata.read_gcda_file(os.path.join(dirpath, gcda))
+            gcnodata.add_to_coverage(self, testname, dirpath)
+            return
         for dirpath, dirnames, filenames in os.walk(gcdaDir):
             print 'Processing %s' % dirpath
             gcda_files = filter(lambda f: f.endswith('.gcda'), filenames)
@@ -205,12 +214,18 @@ class CoverageData:
 
     def loadViaGcov(self, testname, dirwalk, gcovtool):
         dirwalk = os.path.abspath(dirwalk)
+        table = self._data.setdefault(testname, {})
+        if os.path.isfile(dirwalk):
+            basedir = os.path.dirname(dirwalk)
+            loader = GcovLoader(basedir, gcovtool, table=table)
+            loader.loadDirectory(basedir, [os.path.basename(dirwalk)])
+            return
+
         iterpaths = []
         for dirpath, dirnames, filenames in os.walk(dirwalk):
             iterpaths.append((dirpath,
                 filter(lambda x: x.endswith('.gcda'), filenames)))
         iterpaths = filter(lambda x: x[-1], iterpaths)
-        table = self._data.setdefault(testname, {})
         loader = GcovLoader(dirwalk, gcovtool, table=table)
         for directory, gcdas in iterpaths:
             loader.loadDirectory(directory, gcdas)
