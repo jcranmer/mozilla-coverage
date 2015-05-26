@@ -1,4 +1,8 @@
 function displayDirectoryResults(json) {
+  // Fix up the top-level path issue.
+  if (path.length == 1 && path[0] === "")
+    path = [];
+
   var root = json;
   for (var i = 0; i < path.length; i++) {
     var sub = root.files.filter(function (d) { return d.name == path[i] });
