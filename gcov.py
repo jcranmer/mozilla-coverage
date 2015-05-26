@@ -106,7 +106,7 @@ class GcnoData(object):
         for function in self._functions.itervalues():
             rich_bb_graph = build_solver_graph(function)
             solve_arc_counts(rich_bb_graph)
-            line_map = build_line_map(rich_bb_graph)
+            line_map = build_line_map(rich_bb_graph, function)
             add_coverage_data(line_map, get_file_data)
             get_file_data(function.location[0]).add_function_hit(
                 function.name, rich_bb_graph[0].count, function.location[1])
@@ -408,21 +408,34 @@ def solve_arc_counts(nodes):
             display_bb_graph(nodes)
             assert did_change
 
-def build_line_map(blocks):
-    filename, line = '', 0
+def build_line_map(blocks, function):
+    display_bb_graph(blocks)
+    filename, line = function.location
     block_map = dict()
     line_counts = dict()
-    # The first two blocks are the entry and exit blocks, which should be
-    # ignored.
-    for bb in blocks[2:]:
+    # Ignore the entry and exit blocks.
+    for bb in blocks[1:-1]:
         for filename, line in bb.bbdata.get_lines():
             key = filename, line
             line_counts[key] = line_counts.get(key, 0) + bb.count
-            pass
-        else:
-            pass
 
+        # Count the line of a block as the last line in the list--this should be
+        # the line of its branch point.
         block_map.setdefault((filename, line), []).append(bb)
+
+    # Adjust the line counts for blocks on the chain. The easy solution is to
+    # add the blocks for every line encountered, but that overcounts situations
+    # like short-circuit conditions. Instead we only want to count "new" entries
+    # into the line, i.e., either a transition from a prior line to the current
+    # line or a transition or a backedge traversal.
+    for location, bbs in block_map.iteritems():
+        arc_count = 0
+        for bb in bbs:
+            for arc in bb.in_arcs:
+                if arc.source not in bbs:
+                    arc_count += arc.count
+        line_counts[location] = arc_count
+
     return block_map, line_counts
 
 def add_coverage_data(line_map, get_file_data):
