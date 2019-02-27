@@ -9,19 +9,27 @@ from ccov import CoverageData
 
 def main(argv):
     from optparse import OptionParser
-    o = OptionParser()
+    usage = "Usage: %prog [options] inputfile(s)"
+    o = OptionParser(usage)
     o.add_option('-o', '--output', dest="outdir",
         help="Directory to store all HTML files", metavar="DIRECTORY")
     o.add_option('-s', '--source-dir', dest="basedir",
         help="Base directory for source code", metavar="DIRECTORY")
+    o.add_option('-l', '--limits', dest="limits",
+        help="Custom limits for medium,high coverage") 
     (opts, args) = o.parse_args(argv)
     if opts.outdir is None:
         print "Need to pass in -o!"
         sys.exit(1)
 
+    if len(args) < 2:
+        print "Need to specify at least one input file!"
+        sys.exit(1)    
+
     # Add in all the data
     cov = CoverageData()
     for lcovFile in args[1:]:
+        print "Reading coverage data from", lcovFile
         cov.addFromLcovFile(open(lcovFile, 'r'))
 
     # Make the output directory
@@ -29,17 +37,18 @@ def main(argv):
         os.makedirs(opts.outdir)
 
     print ('Building UI...')
-    builder = UiBuilder(cov, opts.outdir, opts.basedir)
+    builder = UiBuilder(cov, opts.outdir, opts.basedir, opts.limits)
     builder.makeStaticOutput()
     builder.makeDynamicOutput()
 
 class UiBuilder(object):
-    def __init__(self, covdata, outdir, basedir):
+    def __init__(self, covdata, outdir, basedir, limits):
       self.data = covdata
       self.flatdata = self.data.getFlatData()
       self.outdir = outdir
       self.uidir = os.path.dirname(__file__)
       self.basedir = basedir
+      self.limits = limits
       self.relsrc = None
       self.tests = ['all']
 
@@ -154,6 +163,14 @@ class UiBuilder(object):
 
     def _makeDirectoryIndex(self, dirname, jsondata):
       # Utility method for printing out rows of the table
+      mediumLimit = 75.0
+      highLimit = 90.0
+      if self.limits:
+        values = self.limits.split(",");
+        if len(values) == 2:
+            mediumLimit = float(values[0])
+            highLimit = float(values[1])
+        
       def summary_string(lhs, jsondata):
         output = '<tr>'
         output += '<td>%s</td>' % lhs
@@ -164,8 +181,8 @@ class UiBuilder(object):
             output += '<td>0 / 0</td><td>-</td>'
           else:
             ratio = 100.0 * hit / count
-            if ratio < 75.0: clazz = "lowcov"
-            elif ratio < 90.0: clazz = "mediumcov"
+            if ratio < mediumLimit: clazz = "lowcov"
+            elif ratio < highLimit: clazz = "mediumcov"
             else: clazz = "highcov"
             output += '<td class="%s">%d / %d</td><td class="%s">%.1f%%</td>' % (
               clazz, hit, count, clazz, ratio)
@@ -188,7 +205,7 @@ class UiBuilder(object):
 
       def htmlname(json):
         if len(json['files']) > 0:
-          return json['name']
+          return json['name'] + "/index.html"
         else:
           return json['name'] + '.html'
       tablestr = '\n'.join(summary_string(
@@ -214,7 +231,6 @@ class UiBuilder(object):
           self._makeFileData(dirname, child['name'], child)
 
     def _makeFileData(self, dirname, filename, jsondata):
-        print 'Writing %s/%s.html' % (dirname, filename)
         htmltmp = self._readTemplate('file.html')
 
         parameters = {}
