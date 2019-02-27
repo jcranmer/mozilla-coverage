@@ -1,5 +1,5 @@
 body {
-  font-family: sans-serif;
+  font-family: arial;
 }
 
 h1 {
@@ -15,7 +15,6 @@ div.info-panel {
 div.info-panel + hr {
   clear: both;
 }
-
 table#coveredtable {
   margin: 0 auto;
   min-width: 66%;
@@ -23,17 +22,17 @@ table#coveredtable {
 
 th {
   font-weight: bold;
-  background-color: #6688D4;
+  background-color: #676767;
   color: white;
   text-align: center;
-  padding: 0 1em;
+  padding: 0.5em 1em;
   font-size: 110%;
 }
 
 td {
-  background-color: #DAE7FE;
+    background-color: #a6a6a6;
   min-width: 3.5em;
-  padding: 0 0.5em;
+  padding: 0.5em 0.5em;
   text-align: right;
 }
 
@@ -41,19 +40,19 @@ td {
 td:first-child {
   text-align: left;
 }
-tbody td:first-child {
+tbody td:not(:first-child) {
   font-family: monospace;
 }
 
 /* Coverage colored backgrounds */
 .lowcov {
-  background-color: #FEBAC2;
+    background-color: #e93939;
 }
 .mediumcov {
-  background-color: #FEF8B1;
+    background-color: #e7b416;
 }
 .highcov {
-  background-color: #C5FEBA;
+    background-color: #99c140;
 }
 
 /* File coverage data styles */
