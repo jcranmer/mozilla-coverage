@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html><head>
+<meta charset="UTF-8"/>
+<title>Code coverage for ${directory}</title>
+<link href="${depth}/ccov.css" rel="stylesheet" type="text/css" />
+<script src="${depth}/dynamic-results.js"></script>
+<script src="${depth}/d3.v3.min.js" charset="UTF-8"></script>
+<script>var path="${directory}".split("/"); var depth="${depth}";</script>
+</head>
+<body onload="onDirectoryLoad()">
+<h1>Code coverage report for <span id="reponame">${reponame}</span></h1>
+<hr>
+<div class="info-panel">Test:
+<select id="testsuite">${testoptions}</select>
+</div>
+<div class="info-panel">Date compiled: ${date}</div>
+<div class="info-panel"><a href="${depth}/coverage.html?dir=${directory}">Graphical Overview</a> | <b>Detailed Report</b></div>
+<hr>
+<table id="coveredtable">
+<thead>
+  <tr><th>Filename</th><th colspan="2">Line</th><th colspan="2">Function</th><th colspan="2">Branch</th></tr>
+</thead>
+<tbody>
+  ${tbody}
+</tbody>
+<tfoot>
+  ${tfoot}
+</table>
+</body>
+</html>
