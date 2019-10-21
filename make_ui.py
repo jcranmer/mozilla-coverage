@@ -50,7 +50,7 @@ class UiBuilder(object):
       self.basedir = basedir
       self.limits = limits
       self.relsrc = None
-      self.tests = ['all']
+      self.tests = []
 
     def _loadGlobalData(self):
         json_data = self.buildJSONData(self.flatdata)
@@ -135,7 +135,8 @@ class UiBuilder(object):
     def makeDynamicOutput(self):
         # Dump out JSON files
         json_data = self._loadGlobalData()
-        json.dump(json_data, open(os.path.join(self.outdir, 'all.json'), 'w'))
+        if 'all' in self.tests :
+          json.dump(json_data, open(os.path.join(self.outdir, 'all.json'), 'w'))
         for test in self.data.getTests():
             small_data = self.data.getTestData(test)
             if len(small_data) == 0:
@@ -187,8 +188,10 @@ class UiBuilder(object):
             output += '<td class="%s">%d / %d</td><td class="%s">%.1f%%</td>' % (
               clazz, hit, count, clazz, ratio)
         return output + '</tr>'
-      htmltmp = self._readTemplate('directory.html')
-
+      if dirname:
+        htmltmp = self._readTemplate('directory.html')
+      else:
+        htmltmp = self._readTemplate('root_directory.html')
       jsondata['files'].sort(lambda x, y: cmp(x['name'], y['name']))
 
       # Parameters for output
@@ -202,6 +205,8 @@ class UiBuilder(object):
         ('<option>%s</option>' % test) for test in self.tests)
       from datetime import date
       parameters['date'] = date.today().isoformat()
+      if not dirname:
+        parameters['reponame'] = os.getcwd()[os.getcwd().rfind('/')+1:len(os.getcwd())]
 
       def htmlname(json):
         if len(json['files']) > 0:
@@ -231,12 +236,22 @@ class UiBuilder(object):
           self._makeFileData(dirname, child['name'], child)
 
     def _makeFileData(self, dirname, filename, jsondata):
-        htmltmp = self._readTemplate('file.html')
-
+        if dirname:
+          if dirname == 'inc':  
+            htmltmp = self._readTemplate('single_test_file.html')
+          else:  
+            htmltmp = self._readTemplate('file.html')
+        else:
+          htmltmp = self._readTemplate('single_test_file.html')
         parameters = {}
         parameters['file'] = os.path.join(dirname, filename)
         parameters['directory'] = dirname
-        parameters['depth'] = '/'.join('..' for x in dirname.split('/'))
+
+        if dirname:
+          parameters['depth'] = '/'.join('..' for x in dirname.split('/'))
+        else:
+          parameters['depth'] = '.'
+
         parameters['testoptions'] = '\n'.join(
            '<option>%s</option>' % s for s in self.tests)
         from datetime import date

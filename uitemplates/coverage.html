@@ -59,7 +59,7 @@ function onLoad() {
     .style("position", "relative")
     .style("width", width + "px")
     .style("height", height + "px");
-  d3.json("all.json", loadJsonData);
+  d3.json(d3.select("#testsuite").node().value + ".json", loadJsonData);
 
   // Bind the coverage scale
   d3.select("#scale").selectAll("rect")
