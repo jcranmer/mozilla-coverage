@@ -314,7 +314,7 @@ class GcovLoader(object):
         shutil.rmtree(gcovdir)
 
     def _readGcovFile(self, fd, relpath):
-        lineDataRe = re.compile(r"\s*([^:]+):\s*([0-9]+):(.*)$")
+        lineDataRe = re.compile(r"\s*([^:*]+)\*?:\s*([0-9]+):(.*)$")
         functionDataRe = re.compile("function (.*) called ([0-9]+)")
         branchNoRe = re.compile(r"\s*[^:]+:\s*[0-9]+-block\s+([0-9]+)$")
         brdRe = re.compile(r"branch\s*([0-9]+) (taken ([0-9]+)|never executed)")
@@ -338,7 +338,7 @@ class GcovLoader(object):
                     else:
                         fulltable = self.table[filename]
                 elif lineno >= 1 and count != '-':
-                    if count == '#####':
+                    if count == '#####' or count == '=====':
                         count = 0
                     else:
                         count = int(count)
