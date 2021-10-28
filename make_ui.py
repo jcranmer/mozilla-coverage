@@ -1,6 +1,5 @@
 #!/usr/bin/python
 
-import cgi
 import json
 import os
 import shutil
@@ -19,17 +18,17 @@ def main(argv):
         help="Custom limits for medium,high coverage") 
     (opts, args) = o.parse_args(argv)
     if opts.outdir is None:
-        print "Need to pass in -o!"
+        print("Need to pass in -o!")
         sys.exit(1)
 
     if len(args) < 2:
-        print "Need to specify at least one input file!"
+        print("Need to specify at least one input file!")
         sys.exit(1)    
 
     # Add in all the data
     cov = CoverageData()
     for lcovFile in args[1:]:
-        print "Reading coverage data from", lcovFile
+        print("Reading coverage data from", lcovFile)
         cov.addFromLcovFile(open(lcovFile, 'r'))
 
     # Make the output directory
@@ -192,7 +191,7 @@ class UiBuilder(object):
         htmltmp = self._readTemplate('directory.html')
       else:
         htmltmp = self._readTemplate('root_directory.html')
-      jsondata['files'].sort(lambda x, y: cmp(x['name'], y['name']))
+      jsondata['files'].sort(key=lambda x: x['name'])
 
       # Parameters for output
       parameters = {}
@@ -236,6 +235,12 @@ class UiBuilder(object):
           self._makeFileData(dirname, child['name'], child)
 
     def _makeFileData(self, dirname, filename, jsondata):
+        # Python 2 / 3 compatibility fix  
+        try:
+            import html
+        except ImportError:
+            import cgi as html
+
         if dirname:
           if dirname == 'inc':  
             htmltmp = self._readTemplate('single_test_file.html')
@@ -265,8 +270,13 @@ class UiBuilder(object):
                 '<tr><td colspan="5">File could not be found</td></tr>')
             parameters['data'] = ''
         else:
-            with open(srcfile, 'r') as fd:
-                srclines = fd.readlines()
+            if sys.version_info[0] == 2:'
+		# Python 2 version of open
+                with open(srcfile, mode="r") as fd:
+                  srclines = fd.readlines()
+            else:
+                with open(srcfile, mode="r", encoding="utf-8", errors="ignore") as fd:
+                  srclines = fd.readlines()
 
             flatdata = self.flatdata[filekey]
             del self.flatdata[filekey] # Scavenge memory we don't need anymore.
@@ -309,7 +319,7 @@ class UiBuilder(object):
                 outlines.append(('  <tr%s><td>%d</td>' +
                     '<td>%s</td><td>%s</td><td>%s</td></tr>\n'
                     ) % (covstatus, lineno, brcount, linecount,
-                        cgi.escape(line.rstrip())))
+                        html.escape(line.rstrip())))
                 lineno += 1
             parameters['tbody'] = ''.join(outlines)
 
