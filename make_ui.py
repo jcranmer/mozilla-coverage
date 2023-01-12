@@ -270,7 +270,7 @@ class UiBuilder(object):
                 '<tr><td colspan="5">File could not be found</td></tr>')
             parameters['data'] = ''
         else:
-            if sys.version_info[0] == 2:'
+            if sys.version_info[0] == 2:
 		# Python 2 version of open
                 with open(srcfile, mode="r") as fd:
                   srclines = fd.readlines()
