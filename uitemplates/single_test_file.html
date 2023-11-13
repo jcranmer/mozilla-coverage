@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html><head>
+<meta charset="UTF-8">
+<title>Code coverage</title>
+<link href="${depth}/ccov.css" rel="stylesheet" type="text/css" />
+<script src="${depth}/dynamic-results.js"></script>
+<script src="${depth}/d3.v3.min.js" charset="UTF-8"></script>
+</head>
+<body onload="onFileLoad()">
+<h1>Code coverage report for <span id="filepath">${file}</span></h1>
+<hr>
+<div class="info-panel">Test:
+<select id="testsuite">${testoptions}</select>
+</div>
+<div class="info-panel">Date compiled: ${date}</div>
+<hr>
+<table id="filetable">
+<thead>
+  <tr><th></th><th>Branch data</th><th>Line data</th><th>Source code</th></tr>
+</thead>
+<tbody>
+  ${tbody}
+</tbody>
+<script defer="true">${data}</script>
+</body>
+</html>

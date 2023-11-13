@@ -6,6 +6,7 @@ import re
 import shutil
 import subprocess
 import tempfile
+import sys
 
 def format_set_difference(a, b):
     if a == b:
@@ -35,7 +36,7 @@ class FileCoverageDetails(object):
 
     def lines(self):
         '''Returns an iterator over (line #, hit count) for this file.'''
-        for i in xrange(len(self._lines)):
+        for i in range(len(self._lines)):
             count = self._lines[i]
             if count != -1:
                 yield (i, count)
@@ -53,8 +54,13 @@ class FileCoverageDetails(object):
     def functions(self):
         '''Returns an iterator over (function name, line #, hit count) for this
         file.'''
-        for func, fndata in self._funcs.iteritems():
-            yield (func, fndata[0], fndata[1])
+        if sys.version_info[0] == 2:
+	    # Python 2 has iteritems, Python 3 has items
+            for func, fndata in self._funcs.iteritems():
+                yield (func, fndata[0], fndata[1])
+        else:
+            for func, fndata in self._funcs.items():
+                yield (func, fndata[0], fndata[1])
 
     def add_branch_hit(self, lineno, brno, targetid, count):
         '''Note that the brno'th branch on the line number going to the targetid
@@ -65,10 +71,17 @@ class FileCoverageDetails(object):
     def branches(self):
         '''Returns an iterator over (line #, branch #, [ids], [counts]) for this
         file.'''
-        for tup in self._branches.iteritems():
-            items = tup[1].items()
-            items.sort()
-            yield (tup[0][0], tup[0][1], [x[0] for x in items], [x[1] for x in items])
+        if sys.version_info[0] == 2:
+            # Python 2 has iteritems, Python 3 has items
+            for tup in self._branches.iteritems():
+                items = tup[1].items()
+                items.sort()
+                yield (tup[0][0], tup[0][1], [x[0] for x in items], [x[1] for x in items])
+        else:
+            for tup in self._branches.items():
+                items = tup[1].items()
+                items.sort()
+                yield (tup[0][0], tup[0][1], [x[0] for x in items], [x[1] for x in items])
 
     def write_lcov_output(self, fd):
         '''Writes the record for this file to the file descriptor in the LCOV
@@ -201,7 +214,7 @@ class CoverageData:
             gcnodata.add_to_coverage(self, testname, dirpath)
             return
         for dirpath, dirnames, filenames in os.walk(gcdaDir):
-            print 'Processing %s' % dirpath
+            print("Processing ", dirpath)
             gcda_files = filter(lambda f: f.endswith('.gcda'), filenames)
             gcno_files = [f[:-2] + 'no' for f in gcda_files]
             filepairs = [(da, no) for (da, no) in zip(gcda_files, gcno_files)
@@ -301,7 +314,7 @@ class GcovLoader(object):
         self.table = table
 
     def loadDirectory(self, directory, gcda_files):
-        print 'Processing %s' % directory
+        print("Processing ", directory)
         gcda_files = map(lambda f: os.path.join(directory, f), gcda_files)
         gcovdir = tempfile.mktemp("gcovdir")
         os.mkdir(gcovdir)
@@ -389,7 +402,7 @@ def main(argv):
     coverage = CoverageData()
     if opts.more_files == None: opts.more_files = []
     for lcovFile in opts.more_files:
-        print >> sys.stderr, "Reading file %s" % lcovFile
+        sys.stderr.write("Reading file ", lcovFile)
         fd = open(lcovFile, 'r')
         coverage.addFromLcovFile(fd)
 
@@ -404,7 +417,7 @@ def main(argv):
         coverage.filterFilesByGlob(opts.extract_glob)
     # Store it to output
     if opts.outfile != None:
-        print >> sys.stderr, "Writing to file %s" % opts.outfile
+        sys.stderr.write("Writing to file", opts.outfile)
         outfd = open(opts.outfile, 'w')
     else:
         outfd = sys.stdout

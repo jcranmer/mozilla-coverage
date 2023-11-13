@@ -8,14 +8,13 @@
 <script>var path="${directory}".split("/"); var depth="${depth}";</script>
 </head>
 <body onload="onDirectoryLoad()">
-<h1>Code coverage report for <span id="filepath">${directory}</span></h1>
+<h1>Code coverage report for <span id="reponame">${reponame}</span></h1>
 <hr>
 <div class="info-panel">Test:
 <select id="testsuite">${testoptions}</select>
 </div>
 <div class="info-panel">Date compiled: ${date}</div>
 <div class="info-panel"><a href="${depth}/coverage.html?dir=${directory}">Graphical Overview</a> | <b>Detailed Report</b></div>
-<div class="info-panel"><a href="../index.html">Parent directory</a></div>
 <hr>
 <table id="coveredtable">
 <thead>

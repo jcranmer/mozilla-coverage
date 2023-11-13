@@ -59,7 +59,7 @@ function onLoad() {
     .style("position", "relative")
     .style("width", width + "px")
     .style("height", height + "px");
-  d3.json("all.json", loadJsonData);
+  d3.json(d3.select("#testsuite").node().value + ".json", loadJsonData);
 
   // Bind the coverage scale
   d3.select("#scale").selectAll("rect")
@@ -171,6 +171,7 @@ function cell() {
 }
 
 function get_source_file(data) {
+  if(!data) return '';
   if ("_path" in data)
     return data._path;
   if ('parent' in data) {
@@ -210,7 +211,22 @@ function reroot(new_root) {
         while(d && d.parent != root) d = d.parent;
       }
       if (d)
-        reroot(d);
+      {
+        if (d.files.length > 0)
+        {
+          reroot(d);
+        } else
+        {
+          // Single file, open textual view
+          var url = window.location.href;
+          if (url.indexOf('?'))
+          {
+            url = url.substr(0,url.indexOf('?') -1); 
+          }
+          var directory = url.substr(0,url.lastIndexOf("/"));
+          window.location.href = directory + "/" +  d._path + ".html"
+        }
+      }
     }).transition().delay(2000).style("opacity", 1);
   nodes.order();
 

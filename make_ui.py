@@ -1,6 +1,5 @@
 #!/usr/bin/python
 
-import cgi
 import json
 import os
 import shutil
@@ -9,19 +8,27 @@ from ccov import CoverageData
 
 def main(argv):
     from optparse import OptionParser
-    o = OptionParser()
+    usage = "Usage: %prog [options] inputfile(s)"
+    o = OptionParser(usage)
     o.add_option('-o', '--output', dest="outdir",
         help="Directory to store all HTML files", metavar="DIRECTORY")
     o.add_option('-s', '--source-dir', dest="basedir",
         help="Base directory for source code", metavar="DIRECTORY")
+    o.add_option('-l', '--limits', dest="limits",
+        help="Custom limits for medium,high coverage") 
     (opts, args) = o.parse_args(argv)
     if opts.outdir is None:
-        print "Need to pass in -o!"
+        print("Need to pass in -o!")
         sys.exit(1)
+
+    if len(args) < 2:
+        print("Need to specify at least one input file!")
+        sys.exit(1)    
 
     # Add in all the data
     cov = CoverageData()
     for lcovFile in args[1:]:
+        print("Reading coverage data from", lcovFile)
         cov.addFromLcovFile(open(lcovFile, 'r'))
 
     # Make the output directory
@@ -29,19 +36,20 @@ def main(argv):
         os.makedirs(opts.outdir)
 
     print ('Building UI...')
-    builder = UiBuilder(cov, opts.outdir, opts.basedir)
+    builder = UiBuilder(cov, opts.outdir, opts.basedir, opts.limits)
     builder.makeStaticOutput()
     builder.makeDynamicOutput()
 
 class UiBuilder(object):
-    def __init__(self, covdata, outdir, basedir):
+    def __init__(self, covdata, outdir, basedir, limits):
       self.data = covdata
       self.flatdata = self.data.getFlatData()
       self.outdir = outdir
       self.uidir = os.path.dirname(__file__)
       self.basedir = basedir
+      self.limits = limits
       self.relsrc = None
-      self.tests = ['all']
+      self.tests = []
 
     def _loadGlobalData(self):
         json_data = self.buildJSONData(self.flatdata)
@@ -126,7 +134,8 @@ class UiBuilder(object):
     def makeDynamicOutput(self):
         # Dump out JSON files
         json_data = self._loadGlobalData()
-        json.dump(json_data, open(os.path.join(self.outdir, 'all.json'), 'w'))
+        if 'all' in self.tests :
+          json.dump(json_data, open(os.path.join(self.outdir, 'all.json'), 'w'))
         for test in self.data.getTests():
             small_data = self.data.getTestData(test)
             if len(small_data) == 0:
@@ -154,6 +163,14 @@ class UiBuilder(object):
 
     def _makeDirectoryIndex(self, dirname, jsondata):
       # Utility method for printing out rows of the table
+      mediumLimit = 75.0
+      highLimit = 90.0
+      if self.limits:
+        values = self.limits.split(",");
+        if len(values) == 2:
+            mediumLimit = float(values[0])
+            highLimit = float(values[1])
+        
       def summary_string(lhs, jsondata):
         output = '<tr>'
         output += '<td>%s</td>' % lhs
@@ -164,15 +181,17 @@ class UiBuilder(object):
             output += '<td>0 / 0</td><td>-</td>'
           else:
             ratio = 100.0 * hit / count
-            if ratio < 75.0: clazz = "lowcov"
-            elif ratio < 90.0: clazz = "mediumcov"
+            if ratio < mediumLimit: clazz = "lowcov"
+            elif ratio < highLimit: clazz = "mediumcov"
             else: clazz = "highcov"
             output += '<td class="%s">%d / %d</td><td class="%s">%.1f%%</td>' % (
               clazz, hit, count, clazz, ratio)
         return output + '</tr>'
-      htmltmp = self._readTemplate('directory.html')
-
-      jsondata['files'].sort(lambda x, y: cmp(x['name'], y['name']))
+      if dirname:
+        htmltmp = self._readTemplate('directory.html')
+      else:
+        htmltmp = self._readTemplate('root_directory.html')
+      jsondata['files'].sort(key=lambda x: x['name'])
 
       # Parameters for output
       parameters = {}
@@ -185,10 +204,12 @@ class UiBuilder(object):
         ('<option>%s</option>' % test) for test in self.tests)
       from datetime import date
       parameters['date'] = date.today().isoformat()
+      if not dirname:
+        parameters['reponame'] = os.getcwd()[os.getcwd().rfind('/')+1:len(os.getcwd())]
 
       def htmlname(json):
         if len(json['files']) > 0:
-          return json['name']
+          return json['name'] + "/index.html"
         else:
           return json['name'] + '.html'
       tablestr = '\n'.join(summary_string(
@@ -214,13 +235,28 @@ class UiBuilder(object):
           self._makeFileData(dirname, child['name'], child)
 
     def _makeFileData(self, dirname, filename, jsondata):
-        print 'Writing %s/%s.html' % (dirname, filename)
-        htmltmp = self._readTemplate('file.html')
+        # Python 2 / 3 compatibility fix  
+        try:
+            import html
+        except ImportError:
+            import cgi as html
 
+        if dirname:
+          if dirname == 'inc':  
+            htmltmp = self._readTemplate('single_test_file.html')
+          else:  
+            htmltmp = self._readTemplate('file.html')
+        else:
+          htmltmp = self._readTemplate('single_test_file.html')
         parameters = {}
         parameters['file'] = os.path.join(dirname, filename)
         parameters['directory'] = dirname
-        parameters['depth'] = '/'.join('..' for x in dirname.split('/'))
+
+        if dirname:
+          parameters['depth'] = '/'.join('..' for x in dirname.split('/'))
+        else:
+          parameters['depth'] = '.'
+
         parameters['testoptions'] = '\n'.join(
            '<option>%s</option>' % s for s in self.tests)
         from datetime import date
@@ -234,8 +270,13 @@ class UiBuilder(object):
                 '<tr><td colspan="5">File could not be found</td></tr>')
             parameters['data'] = ''
         else:
-            with open(srcfile, 'r') as fd:
-                srclines = fd.readlines()
+            if sys.version_info[0] == 2:
+		# Python 2 version of open
+                with open(srcfile, mode="r") as fd:
+                  srclines = fd.readlines()
+            else:
+                with open(srcfile, mode="r", encoding="utf-8", errors="ignore") as fd:
+                  srclines = fd.readlines()
 
             flatdata = self.flatdata[filekey]
             del self.flatdata[filekey] # Scavenge memory we don't need anymore.
@@ -278,7 +319,7 @@ class UiBuilder(object):
                 outlines.append(('  <tr%s><td>%d</td>' +
                     '<td>%s</td><td>%s</td><td>%s</td></tr>\n'
                     ) % (covstatus, lineno, brcount, linecount,
-                        cgi.escape(line.rstrip())))
+                        html.escape(line.rstrip())))
                 lineno += 1
             parameters['tbody'] = ''.join(outlines)
 
